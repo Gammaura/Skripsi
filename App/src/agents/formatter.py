@@ -99,9 +99,25 @@ class FormattingActuatorAgent:
                         lvl_num = "0" if '1' in s_name else ("1" if '2' in s_name else "2")
                         s._element.pPr.append(parse_xml(f'<w:outlineLvl xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="{lvl_num}"/>'))
 
+    def _to_roman(self, n: int) -> str:
+        """Konversi integer ke angka Romawi kapital (1 -> I, 2 -> II, 3 -> III, dst)."""
+        if not isinstance(n, int) or n <= 0:
+            return str(n)
+        roman_map = [
+            (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
+            (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+            (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")
+        ]
+        res = ""
+        for val, rom in roman_map:
+            while n >= val:
+                res += rom
+                n -= val
+        return res
+
     def _ensure_heading_multilevel_list(self, doc: Document) -> str:
         """
-        Memastikan definisi Multilevel List untuk Heading (BAB 1, 1.1, 1.1.1) terdaftar di word/numbering.xml.
+        Memastikan definisi Multilevel List untuk Heading (BAB I, 1.1, 1.1.1) terdaftar di word/numbering.xml.
         Mengembalikan numId aktif yang mengikat abstractNum multilevel list ini.
         """
         try:
@@ -118,7 +134,7 @@ class FormattingActuatorAgent:
             if lvl0 is not None:
                 lvl_text = lvl0.find('w:lvlText', ns)
                 if lvl_text is not None and 'BAB' in lvl_text.attrib.get(qn('w:val'), ''):
-                    # Level 0 (BAB 1): pStyle=Heading1, numFmt=decimal, suff=nothing, lvlJc=center, ind left=0 hanging=0
+                    # Level 0 (BAB I): pStyle=Heading1, numFmt=upperRoman, suff=nothing, lvlJc=center, ind left=0 hanging=0
                     pStyle0 = lvl0.find('w:pStyle', ns)
                     if pStyle0 is not None:
                         pStyle0.set(qn('w:val'), 'Heading1')
@@ -127,9 +143,9 @@ class FormattingActuatorAgent:
 
                     num_fmt0 = lvl0.find('w:numFmt', ns)
                     if num_fmt0 is not None:
-                        num_fmt0.set(qn('w:val'), 'decimal')
+                        num_fmt0.set(qn('w:val'), 'upperRoman')
                     else:
-                        lvl0.append(parse_xml(r'<w:numFmt xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="decimal"/>'))
+                        lvl0.append(parse_xml(r'<w:numFmt xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="upperRoman"/>'))
                     
                     lvl_text.set(qn('w:val'), 'BAB %1')
 
@@ -257,7 +273,7 @@ class FormattingActuatorAgent:
             <w:tmpl w:val="4F725FCE"/>
             <w:lvl w:ilvl="0">
                 <w:start w:val="1"/>
-                <w:numFmt w:val="decimal"/>
+                <w:numFmt w:val="upperRoman"/>
                 <w:lvlText w:val="BAB %1"/>
                 <w:lvlJc w:val="center"/>
                 <w:suff w:val="nothing"/>
@@ -1131,7 +1147,7 @@ class FormattingActuatorAgent:
                     accum_lines = 0
 
                 clean_title = re.sub(r'^(BAB\s*(\d+|[IVXLCDM]+)[\s:\.\-]*)+', '', text, flags=re.IGNORECASE).strip()
-                clean_title = f"BAB {current_bab} {clean_title.upper()}"
+                clean_title = f"BAB {self._to_roman(current_bab)} {clean_title.upper()}"
                 bm_id = f"_Toc{bm_counter}"
                 bm_counter += 1
 
@@ -1433,11 +1449,125 @@ class FormattingActuatorAgent:
         except Exception:
             pass
 
+    def _deep_clone_paragraph_to_doc(self, p_src_elem, doc_src, doc_out, label: str = "BODY_PARAGRAPH", after_elem=None):
+        """
+        Melakukan deep-clone PENUH elemen paragraf XML dari dokumen sumber ke dokumen output.
+        Mempertahankan 100% konten: gambar, rumus OpenXML (m:oMath), OLE objects, field codes,
+        hyperlinks, bookmarks, dan semua elemen XML lainnya tanpa perubahan apapun.
+        Hanya me-remap relationship ID gambar agar file gambar ikut tersalin.
+        """
+        clone = copy.deepcopy(p_src_elem)
+        clone.set('approved_label', label)
+
+        # Re-map relationship ID untuk setiap gambar/blip yang ditemukan
+        for blip in clone.findall('.//{http://schemas.openxmlformats.org/drawingml/2006/main}blip'):
+            rid = blip.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed')
+            if rid and rid in doc_src.part.rels:
+                try:
+                    img_blob = doc_src.part.rels[rid].target_part.blob
+                    img_part = doc_out.part.package.get_or_add_image_part(io.BytesIO(img_blob))
+                    new_rid = doc_out.part.relate_to(img_part, docx.opc.constants.RELATIONSHIP_TYPE.IMAGE)
+                    blip.set('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed', new_rid)
+                except Exception:
+                    pass
+
+        # Re-map relationship ID untuk OLE objects dan imagedata (w:pict)
+        for imagedata in clone.findall('.//{urn:schemas-microsoft-com:vml}imagedata'):
+            rid = imagedata.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
+            if rid and rid in doc_src.part.rels:
+                try:
+                    target_part = doc_src.part.rels[rid].target_part
+                    img_blob = target_part.blob
+                    img_part = doc_out.part.package.get_or_add_image_part(io.BytesIO(img_blob))
+                    new_rid = doc_out.part.relate_to(img_part, docx.opc.constants.RELATIONSHIP_TYPE.IMAGE)
+                    imagedata.set('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id', new_rid)
+                except Exception:
+                    pass
+
+        # Re-map hyperlink relationships
+        for hyperlink in clone.findall('.//' + qn('w:hyperlink')):
+            rid = hyperlink.attrib.get(qn('r:id'))
+            if not rid:
+                rid = hyperlink.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
+            if rid and rid in doc_src.part.rels:
+                try:
+                    rel = doc_src.part.rels[rid]
+                    if rel.is_external:
+                        from docx.opc.constants import RELATIONSHIP_TYPE as RT
+                        new_rid = doc_out.part.rels._get_matching(RT.HYPERLINK, rel.target_ref) or \
+                                  doc_out.part.rels.get_or_add_ext_rel(RT.HYPERLINK, rel.target_ref)
+                        if hasattr(new_rid, 'rId'):
+                            new_rid = new_rid.rId
+                        hyperlink.set(qn('r:id'), str(new_rid))
+                except Exception:
+                    pass
+
+        # Sisipkan elemen deep-clone ke body dokumen output
+        if after_elem is not None:
+            after_elem.addnext(clone)
+        else:
+            sectPr = doc_out.element.body.find(qn('w:sectPr'))
+            if sectPr is not None:
+                sectPr.addprevious(clone)
+            else:
+                doc_out.element.body.append(clone)
+        return clone
+
+    def _deep_clone_table_to_doc(self, tbl_src_elem, doc_src, doc_out, after_elem=None):
+        """
+        Melakukan deep-clone PENUH elemen tabel XML dari dokumen sumber ke dokumen output.
+        Mempertahankan 100% konten sel termasuk gambar, rumus, dan format asli.
+        """
+        clone = copy.deepcopy(tbl_src_elem)
+
+        # Re-map gambar dalam sel tabel
+        for blip in clone.findall('.//{http://schemas.openxmlformats.org/drawingml/2006/main}blip'):
+            rid = blip.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed')
+            if rid and rid in doc_src.part.rels:
+                try:
+                    img_blob = doc_src.part.rels[rid].target_part.blob
+                    img_part = doc_out.part.package.get_or_add_image_part(io.BytesIO(img_blob))
+                    new_rid = doc_out.part.relate_to(img_part, docx.opc.constants.RELATIONSHIP_TYPE.IMAGE)
+                    blip.set('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed', new_rid)
+                except Exception:
+                    pass
+
+        if after_elem is not None:
+            after_elem.addnext(clone)
+        else:
+            sectPr = doc_out.element.body.find(qn('w:sectPr'))
+            if sectPr is not None:
+                sectPr.addprevious(clone)
+            else:
+                doc_out.element.body.append(clone)
+        return clone
+
+    def _para_has_rich_content(self, p_elem):
+        """
+        Mendeteksi apakah paragraf mengandung konten kaya (gambar, rumus, OLE, field codes)
+        meskipun teks biasa-nya kosong.
+        """
+        # Gambar (drawing / pict)
+        if p_elem.findall('.//' + qn('w:drawing')) or p_elem.findall('.//' + qn('w:pict')):
+            return True
+        # Rumus OpenXML (Office Math)
+        ns_m = 'http://schemas.openxmlformats.org/officeDocument/2006/math'
+        if p_elem.findall(f'.//{{{ns_m}}}oMath') or p_elem.findall(f'.//{{{ns_m}}}oMathPara'):
+            return True
+        # OLE Objects
+        if p_elem.findall('.//{urn:schemas-microsoft-com:office:office}OLEObject'):
+            return True
+        # Field codes (fldSimple atau fldChar)
+        if p_elem.findall('.//' + qn('w:fldSimple')) or p_elem.findall('.//' + qn('w:fldChar')):
+            return True
+        return False
+
     def format_via_cloned_template(self, input_docx_path: str, approved_blueprint: Dict[str, Any], output_docx_path: str = "output/hasil_skripsi_rapi.docx", cover_data: Dict[str, str] = None) -> str:
         """
         Mengeksekusi pemformatan naskah dengan metode Cloned Template Seed resmi UEU (P1).
-        Menjamin 100% kompatibilitas Multilevel List native Word (BAB 1, 1.1, 1.2, 2.1)
-        dengan blok abu-abu solid saat diklik, margin presisi 4-3-3-3 cm, dan penomoran ganda.
+        Menjamin 100% kompatibilitas Multilevel List native Word (BAB I, 1.1, 1.2, 2.1)
+        dengan blok abu-abu solid saat diklik, margin presisi 4-3-3-3 cm, preservasi 100%
+        semua elemen (zero-content loss), dan struktur halaman depan - bab isi - daftar isi yang paripurna.
         """
         print(f"\n[Agent 3 - Formatter Actuator] Memulai kloning template resmi UEU untuk: {input_docx_path}...")
         template_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "template_clean_ueu.docx")
@@ -1447,8 +1577,9 @@ class FormattingActuatorAgent:
         doc_src = Document(input_docx_path)
         doc_out = Document(template_path)
 
-        # Pastikan abstractNum 2 ilvl 0 memiliki suff="none" agar Word tidak menyisipkan TAB setelah "BAB 1"
+        # Pastikan Multilevel List di doc_out memakai upperRoman untuk Level 0 (BAB I, II, III...) dan isLgl untuk Level 1-2
         try:
+            self._ensure_heading_multilevel_list(doc_out)
             num_part = doc_out.part.numbering_part
             for anum in num_part._element.findall(qn('w:abstractNum')):
                 if anum.attrib.get(qn('w:abstractNumId')) == '2':
@@ -1462,10 +1593,13 @@ class FormattingActuatorAgent:
                         lvlJc = lvl0.find(qn('w:lvlJc'))
                         if lvlJc is not None:
                             lvlJc.set(qn('w:val'), 'center')
+                        num_fmt0 = lvl0.find(qn('w:numFmt'))
+                        if num_fmt0 is not None:
+                            num_fmt0.set(qn('w:val'), 'upperRoman')
         except Exception:
             pass
 
-        # Cek apakah naskah sumber memiliki cover asli (paragraf sebelum Bab 1)
+        # Cek paragraf pertama Bab 1 (JUDUL_BAB)
         first_bab_src_idx = None
         for i, p in enumerate(doc_src.paragraphs):
             up = p.text.strip().upper()
@@ -1473,78 +1607,34 @@ class FormattingActuatorAgent:
                 first_bab_src_idx = i
                 break
 
-        has_src_cover = (first_bab_src_idx is not None and first_bab_src_idx > 5)
-        has_frontmatter = has_src_cover
+        has_frontmatter = (first_bab_src_idx is not None and first_bab_src_idx > 0)
 
         body_elem = doc_out.element.body
-        children = list(body_elem)
-
         # Simpan sectPr resmi untuk Section 0 (Cover - tanpa nomor), Section 1 (Frontmatter - lowerRoman) dan Section 2 (Bab Isi - decimal)
         sec0_sect_pr = copy.deepcopy(doc_out.sections[0]._sectPr) if len(doc_out.sections) > 0 else None
         sec1_sect_pr = copy.deepcopy(doc_out.sections[1]._sectPr) if len(doc_out.sections) > 1 else None
         sec2_sect_pr = copy.deepcopy(doc_out.sections[2]._sectPr) if len(doc_out.sections) > 2 else copy.deepcopy(doc_out.sections[-1]._sectPr)
 
-        if has_src_cover:
-            print("[Agent 3 - Formatter Actuator] Naskah sumber memiliki cover asli. Mempertahankan cover asli 100%...")
-            src_cover_elems = []
-            for el in doc_src.element.body:
-                clone = copy.deepcopy(el)
-                # Salin gambar/logo jika ada di cover
-                for blip in clone.findall('.//{http://schemas.openxmlformats.org/drawingml/2006/main}blip'):
-                    rid = blip.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed')
-                    if rid and rid in doc_src.part.rels:
-                        img_blob = doc_src.part.rels[rid].target_part.blob
-                        img_part = doc_out.part.package.get_or_add_image_part(io.BytesIO(img_blob))
-                        new_rid = doc_out.part.relate_to(img_part, docx.opc.constants.RELATIONSHIP_TYPE.IMAGE)
-                        blip.set('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed', new_rid)
-                src_cover_elems.append(clone)
-                if el.find('.//' + qn('w:sectPr')) is not None:
-                    break
-                txt_el = ''.join(el.itertext()).strip().upper()
-                if any(k in txt_el for k in ["PENGESAHAN", "PERNYATAAN", "KATA PENGANTAR", "ABSTRAK", "DAFTAR ISI"]):
-                    src_cover_elems.pop()
-                    break
+        # Bersihkan elemen paragraf/tabel dummy bawaan template (pertahankan sectPr akhir)
+        for c in list(body_elem):
+            if c.tag != qn('w:sectPr'):
+                body_elem.remove(c)
 
-            # Pastikan elemen terakhir cover memakai sec0_sect_pr agar header/footer bersih
-            if src_cover_elems and sec0_sect_pr is not None:
-                last_p = src_cover_elems[-1]
-                last_pPr = last_p.get_or_add_pPr() if hasattr(last_p, 'get_or_add_pPr') else last_p.find(qn('w:pPr'))
-                if last_pPr is not None:
-                    old_s = last_pPr.find(qn('w:sectPr'))
-                    if old_s is not None:
-                        last_pPr.remove(old_s)
-                    last_pPr.append(copy.deepcopy(sec0_sect_pr))
-
-            # Bersihkan elemen bawaan template P1
-            for c in list(body_elem):
-                if c.tag != qn('w:sectPr'):
-                    body_elem.remove(c)
-
-            # Sisipkan cover asli naskah sumber di paling awal
-            for i, el in enumerate(src_cover_elems):
-                body_elem.insert(i, el)
-
-            # Pasang root sectPr naskah untuk Section 2
-            body_sect = body_elem.find(qn('w:sectPr'))
-            if body_sect is not None and sec2_sect_pr is not None:
-                body_elem.remove(body_sect)
-                body_elem.append(copy.deepcopy(sec2_sect_pr))
-
-        else:
-            print("[Agent 3 - Formatter Actuator] Naskah sumber tidak memiliki cover. Menghapus cover & frontmatter dummy bawaan template...")
-            for c in list(body_elem):
-                if c.tag != qn('w:sectPr'):
-                    body_elem.remove(c)
-
-            # Konfigurasi root sectPr naskah untuk Section 2 (decimal, start=1)
-            body_sect = body_elem.find(qn('w:sectPr'))
-            if body_sect is not None and sec2_sect_pr is not None:
-                body_elem.remove(body_sect)
-                body_elem.append(copy.deepcopy(sec2_sect_pr))
+        # === ZERO-LOSS TABLE MAPPING ===
+        # Petakan setiap w:tbl ke indeks paragraf (para_id) yang mendahuluinya di dokumen sumber
+        table_after_para = {}
+        current_para_count = 0
+        for child in doc_src.element.body:
+            if child.tag == qn('w:p'):
+                current_para_count += 1
+            elif child.tag == qn('w:tbl'):
+                pred_p_idx = max(0, current_para_count - 1)
+                if pred_p_idx not in table_after_para:
+                    table_after_para[pred_p_idx] = []
+                table_after_para[pred_p_idx].append(child)
+        inserted_tables = set()
 
         src_tables = list(doc_src.tables)
-        table_cursor = 0
-
         current_bab = 0
         current_sub = 0
         current_subsub = 0
@@ -1558,22 +1648,62 @@ class FormattingActuatorAgent:
         src_to_out_numid = {}
         last_was_list = False
 
-        # Injeksi paragraf naskah ke Section 2 (Mulai dari Bab 1 / JUDUL_BAB pertama)
-        start_injecting = False if has_src_cover else True
-
+        # === INJEKSI KONTEN LENGKAP (FRONTMATTER + BAB ISI + BACKMATTER) ===
         for item in approved_blueprint.get("paragraphs", []):
             lbl = item["approved_label"]
             txt = item.get("text", "").strip()
             meta = item.get("metadata", {})
             orig_idx = item.get("para_id", 0)
+            p_src = doc_src.paragraphs[orig_idx] if orig_idx < len(doc_src.paragraphs) else None
 
-            if not start_injecting:
-                if lbl == "JUDUL_BAB" or (first_bab_src_idx is not None and orig_idx >= first_bab_src_idx):
-                    start_injecting = True
-                else:
-                    continue
+            # -------------------------------------------------------------
+            # A. FRONTMATTER TITLE (ABSTRAK, ABSTRACT, KATA PENGANTAR, dll.)
+            # -------------------------------------------------------------
+            if lbl == "FRONTMATTER_TITLE":
+                p = doc_out.add_paragraph()
+                p._p.set('approved_label', 'FRONTMATTER_TITLE')
+                try:
+                    p.style = doc_out.styles['Heading 1']
+                except Exception:
+                    pass
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                pPr = p._p.get_or_add_pPr()
+                pPr.append(parse_xml(r'<w:jc xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="center"/>'))
+                if len(doc_out.paragraphs) > 1:
+                    pPr.append(parse_xml(r'<w:pageBreakBefore xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>'))
+                pPr.append(parse_xml(r'<w:keepNext xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>'))
+                pPr.append(parse_xml(r'<w:spacing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:before="480" w:after="240" w:line="240" w:lineRule="auto"/>'))
+                pPr.append(parse_xml(r'<w:outlineLvl xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="0"/>'))
+                clean_fm = re.sub(r'^(BAB\s*(\d+|[IVXLCDM]+)[\s:\.\-]*)+', '', txt, flags=re.IGNORECASE).strip().upper()
+                r_txt = p.add_run(clean_fm if clean_fm else txt.upper())
+                r_txt.font.name = "Times New Roman"
+                r_txt.font.size = Pt(14)
+                r_txt.font.bold = True
+                r_txt.font.color.rgb = RGBColor(0, 0, 0)
 
-            if lbl == "JUDUL_BAB":
+            # -------------------------------------------------------------
+            # B. COVER METADATA (Judul Skripsi, Nama, NIM, Logo)
+            # -------------------------------------------------------------
+            elif lbl == "COVER_METADATA":
+                if p_src is not None and self._para_has_rich_content(p_src._p):
+                    self._deep_clone_paragraph_to_doc(p_src._p, doc_src, doc_out, label='COVER_METADATA')
+                elif txt:
+                    p = doc_out.add_paragraph()
+                    p._p.set('approved_label', 'COVER_METADATA')
+                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    pPr = p._p.get_or_add_pPr()
+                    pPr.append(parse_xml(r'<w:jc xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="center"/>'))
+                    pPr.append(parse_xml(r'<w:spacing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:before="0" w:after="120" w:line="276" w:lineRule="auto"/>'))
+                    r = p.add_run(txt)
+                    r.font.name = "Times New Roman"
+                    r.font.size = Pt(14 if orig_idx == 0 else 12)
+                    r.font.bold = True
+                    r.font.color.rgb = RGBColor(0, 0, 0)
+
+            # -------------------------------------------------------------
+            # C. JUDUL BAB (Heading 1 + BAB I / II / III + Outline Level 0)
+            # -------------------------------------------------------------
+            elif lbl == "JUDUL_BAB":
                 current_bab += 1
                 current_sub = 0
                 current_subsub = 0
@@ -1584,7 +1714,7 @@ class FormattingActuatorAgent:
 
                 clean_title = re.sub(r'^(BAB\s*(\d+|[IVXLCDM]+)[\s:\.\-]*)+', '', txt, flags=re.IGNORECASE).strip()
                 if not clean_title:
-                    clean_title = "PENDAHULUAN" if current_bab == 1 else f"BAB {current_bab}"
+                    clean_title = "PENDAHULUAN" if current_bab == 1 else f"BAB {self._to_roman(current_bab)}"
 
                 p = doc_out.add_paragraph()
                 p._p.set('approved_label', 'JUDUL_BAB')
@@ -1612,6 +1742,9 @@ class FormattingActuatorAgent:
                 r_txt.font.bold = True
                 r_txt.font.color.rgb = RGBColor(0, 0, 0)
 
+            # -------------------------------------------------------------
+            # D. SUB-BAB & SUB-SUB-BAB (Heading 2 / Heading 3)
+            # -------------------------------------------------------------
             elif lbl == "SUB_BAB":
                 src_to_out_numid.clear()
                 last_was_list = False
@@ -1654,118 +1787,128 @@ class FormattingActuatorAgent:
                 r_txt.font.bold = True
                 r_txt.font.color.rgb = RGBColor(0, 0, 0)
 
+            # -------------------------------------------------------------
+            # E. BODY PARAGRAPH
+            # -------------------------------------------------------------
             elif lbl == "BODY_PARAGRAPH":
-                p_src = doc_src.paragraphs[orig_idx] if orig_idx < len(doc_src.paragraphs) else None
-                drawings = p_src._p.findall('.//' + qn('w:drawing')) if p_src is not None else []
-                
-                src_pPr = p_src._p.find(qn('w:pPr')) if p_src is not None else None
-                src_numPr = src_pPr.find(qn('w:numPr')) if src_pPr is not None else None
+                has_drawings = bool(p_src._p.findall('.//' + qn('w:drawing')) or p_src._p.findall('.//' + qn('w:pict'))) if p_src is not None else False
+                has_rich = self._para_has_rich_content(p_src._p) if p_src is not None else False
 
-                if drawings or meta.get("has_img"):
-                    p = doc_out.add_paragraph()
-                    p._p.set('approved_label', 'BODY_PARAGRAPH')
-                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    pPr = p._p.get_or_add_pPr()
-                    pPr.append(parse_xml(r'<w:jc xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="center"/>'))
-                    pPr.append(parse_xml(r'<w:spacing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:before="120" w:after="60"/>'))
-
-                    if p_src is not None:
-                        # Pertahankan dimensi proporsional asli gambar (tidak memaksakan 4.5 inci yang membuat gambar kecil jadi raksasa)
-                        orig_cx = None
-                        for d in p_src._p.findall('.//' + qn('w:drawing')):
-                            ext = d.find('.//{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}extent')
-                            if ext is not None and ext.attrib.get('cx'):
-                                try:
-                                    orig_cx = int(ext.attrib.get('cx'))
-                                    break
-                                except Exception:
-                                    pass
-
-                        # Batas maksimum area cetak A4 (lebar 21cm - margin kiri 4cm - margin kanan 3cm = 14cm = ~5.5 inci)
-                        if orig_cx and orig_cx > 0:
-                            orig_w_in = orig_cx / 914400.0
-                            if orig_w_in > 5.5:
-                                target_w = Inches(5.5)
-                            elif orig_w_in < 1.0:
-                                target_w = Inches(1.5)
-                            else:
-                                target_w = Inches(orig_w_in)
+                # Jika berada di Frontmatter (sebelum Bab 1):
+                if current_bab == 0:
+                    if p_src is not None and has_rich:
+                        self._deep_clone_paragraph_to_doc(p_src._p, doc_src, doc_out, label='BODY_PARAGRAPH')
+                    elif txt:
+                        p = doc_out.add_paragraph()
+                        p._p.set('approved_label', 'BODY_PARAGRAPH')
+                        pPr = p._p.get_or_add_pPr()
+                        is_kw = any(txt.lower().startswith(k) for k in ["kata kunci", "keywords", "kata kunci:", "keywords:"])
+                        if is_kw and ":" in txt:
+                            pPr.append(parse_xml(r'<w:jc xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="both"/>'))
+                            pPr.append(parse_xml(r'<w:spacing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:before="120" w:after="120" w:line="276" w:lineRule="auto"/>'))
+                            parts = txt.split(":", 1)
+                            r1 = p.add_run(parts[0].strip() + ": ")
+                            r1.font.name = "Times New Roman"
+                            r1.font.size = Pt(12)
+                            r1.font.bold = True
+                            r2 = p.add_run(parts[1].strip())
+                            r2.font.name = "Times New Roman"
+                            r2.font.size = Pt(12)
+                            r2.font.italic = True
                         else:
-                            target_w = Inches(3.5)
+                            pPr.append(parse_xml(r'<w:jc xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="both"/>'))
+                            pPr.append(parse_xml(r'<w:spacing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:before="0" w:after="120" w:line="276" w:lineRule="auto"/>'))
+                            r = p.add_run(txt)
+                            r.font.name = "Times New Roman"
+                            r.font.size = Pt(12)
+                    elif p_src is not None and len(list(p_src._p)) > (1 if p_src._p.find(qn('w:pPr')) is not None else 0):
+                        self._deep_clone_paragraph_to_doc(p_src._p, doc_src, doc_out, label='BODY_PARAGRAPH')
 
-                        for blip in p_src._p.findall('.//{http://schemas.openxmlformats.org/drawingml/2006/main}blip'):
-                            rid = blip.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed')
-                            if rid and rid in doc_src.part.rels:
-                                img_blob = doc_src.part.rels[rid].target_part.blob
-                                r = p.add_run()
-                                r.add_picture(io.BytesIO(img_blob), width=target_w)
+                # Jika berada di Bab Isi (Bab 1+):
+                elif has_drawings or meta.get("has_img"):
+                    clone = self._deep_clone_paragraph_to_doc(p_src._p, doc_src, doc_out, label='BODY_PARAGRAPH')
+                    clone_pPr = clone.get_or_add_pPr()
+                    old_numPr = clone_pPr.find(qn('w:numPr'))
+                    if old_numPr is not None:
+                        clone_pPr.remove(old_numPr)
+                    old_jc = clone_pPr.find(qn('w:jc'))
+                    if old_jc is not None:
+                        clone_pPr.remove(old_jc)
+                    clone_pPr.append(parse_xml(r'<w:jc xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="center"/>'))
+                    old_sp = clone_pPr.find(qn('w:spacing'))
+                    if old_sp is not None:
+                        clone_pPr.remove(old_sp)
+                    clone_pPr.append(parse_xml(r'<w:spacing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:before="120" w:after="60"/>'))
+
+                elif has_rich and not txt:
+                    print(f"[Agent 3 - Formatter] Zero-Loss: Deep-cloning paragraf kaya #{orig_idx} (rumus/OLE/field)")
+                    self._deep_clone_paragraph_to_doc(p_src._p, doc_src, doc_out, label='BODY_PARAGRAPH')
+
                 elif txt:
-                    p = doc_out.add_paragraph()
-                    p._p.set('approved_label', 'BODY_PARAGRAPH')
-                    pPr = p._p.get_or_add_pPr()
+                    if p_src is not None and has_rich:
+                        clone = self._deep_clone_paragraph_to_doc(p_src._p, doc_src, doc_out, label='BODY_PARAGRAPH')
+                        clone_pPr = clone.get_or_add_pPr()
+                        old_jc = clone_pPr.find(qn('w:jc'))
+                        if old_jc is not None:
+                            clone_pPr.remove(old_jc)
+                        clone_pPr.append(parse_xml(r'<w:jc xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="both"/>'))
+                        old_sp = clone_pPr.find(qn('w:spacing'))
+                        if old_sp is not None:
+                            clone_pPr.remove(old_sp)
+                        clone_pPr.append(parse_xml(r'<w:spacing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:before="0" w:after="120" w:line="276" w:lineRule="auto"/>'))
+                        old_ind = clone_pPr.find(qn('w:ind'))
+                        if old_ind is not None:
+                            clone_pPr.remove(old_ind)
+                        clone_pPr.append(parse_xml(r'<w:ind xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:left="0" w:right="0" w:firstLine="720"/>'))
+                    else:
+                        p = doc_out.add_paragraph()
+                        p._p.set('approved_label', 'BODY_PARAGRAPH')
+                        pPr = p._p.get_or_add_pPr()
 
-                    # Preservasi list penomoran angka atau bullet asli (seperti rumusan masalah 1, 2, 3)
-                    if src_numPr is not None:
-                        p.style = doc_out.styles['List Paragraph']
-                        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                        src_pPr = p_src._p.find(qn('w:pPr')) if p_src is not None else None
+                        src_numPr = src_pPr.find(qn('w:numPr')) if src_pPr is not None else None
 
-                        is_bullet = False
-                        src_nid = None
-                        try:
-                            src_nid = src_numPr.find(qn('w:numId')).attrib.get(qn('w:val'))
-                            src_part = doc_src.part.numbering_part
-                            for num_el in src_part._element.findall(qn('w:num')):
-                                if num_el.attrib.get(qn('w:numId')) == src_nid:
-                                    aid = num_el.find(qn('w:abstractNumId')).attrib.get(qn('w:val'))
-                                    for anum_el in src_part._element.findall(qn('w:abstractNum')):
-                                        if anum_el.attrib.get(qn('w:abstractNumId')) == aid:
-                                            fmt = anum_el.find(qn('w:lvl')).find(qn('w:numFmt')).attrib.get(qn('w:val'))
-                                            if fmt == 'bullet':
-                                                is_bullet = True
-                        except Exception:
-                            pass
+                        if src_numPr is not None:
+                            src_nid_el = src_numPr.find(qn('w:numId'))
+                            src_nid = src_nid_el.attrib.get(qn('w:val'), '0') if src_nid_el is not None else '0'
 
-                        if is_bullet:
-                            out_numId = "2"
-                        else:
-                            # Setiap list angka terpisah mendapatkan numId unik dengan startOverride=1 agar tidak lanjut dari list sebelumnya
                             if src_nid not in src_to_out_numid:
                                 new_nid = str(next_list_num_id)
                                 next_list_num_id += 1
-                                new_num_el = parse_xml(f'''
-                                    <w:num xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:numId="{new_nid}">
-                                        <w:abstractNumId w:val="0"/>
-                                        <w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride>
-                                        <w:lvlOverride w:ilvl="1"><w:startOverride w:val="1"/></w:lvlOverride>
-                                        <w:lvlOverride w:ilvl="2"><w:startOverride w:val="1"/></w:lvlOverride>
-                                    </w:num>
-                                ''')
+                                target_abs_id = "1"
+                                new_num_el = parse_xml(f'<w:num xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:numId="{new_nid}"><w:abstractNumId w:val="{target_abs_id}"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride><w:lvlOverride w:ilvl="1"><w:startOverride w:val="1"/></w:lvlOverride><w:lvlOverride w:ilvl="2"><w:startOverride w:val="1"/></w:lvlOverride></w:num>')
                                 num_part._element.append(new_num_el)
                                 src_to_out_numid[src_nid] = new_nid
                             out_numId = src_to_out_numid[src_nid]
 
-                        src_ilvl = src_numPr.find(qn('w:ilvl')).attrib.get(qn('w:val'), '0') if src_numPr.find(qn('w:ilvl')) is not None else '0'
+                            src_ilvl = src_numPr.find(qn('w:ilvl')).attrib.get(qn('w:val'), '0') if src_numPr.find(qn('w:ilvl')) is not None else '0'
 
-                        numPr_out = parse_xml(f'<w:numPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:ilvl w:val="{src_ilvl}"/><w:numId w:val="{out_numId}"/></w:numPr>')
-                        pPr.append(numPr_out)
-                        pPr.append(parse_xml(r'<w:jc xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="both"/>'))
-                        pPr.append(parse_xml(r'<w:spacing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:before="0" w:after="60" w:line="276" w:lineRule="auto"/>'))
-                        pPr.append(parse_xml(r'<w:ind xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:left="720" w:hanging="360"/>'))
-                        last_was_list = True
-                    else:
-                        last_was_list = False
-                        p.style = doc_out.styles['Normal']
-                        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                        pPr.append(parse_xml(r'<w:jc xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="both"/>'))
-                        pPr.append(parse_xml(r'<w:spacing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:before="0" w:after="120" w:line="276" w:lineRule="auto"/>'))
-                        pPr.append(parse_xml(r'<w:ind xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:left="0" w:right="0" w:firstLine="720"/>'))
+                            numPr_out = parse_xml(f'<w:numPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:ilvl w:val="{src_ilvl}"/><w:numId w:val="{out_numId}"/></w:numPr>')
+                            pPr.append(numPr_out)
+                            pPr.append(parse_xml(r'<w:jc xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="both"/>'))
+                            pPr.append(parse_xml(r'<w:spacing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:before="0" w:after="60" w:line="276" w:lineRule="auto"/>'))
+                            pPr.append(parse_xml(r'<w:ind xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:left="720" w:hanging="360"/>'))
+                            last_was_list = True
+                        else:
+                            last_was_list = False
+                            p.style = doc_out.styles['Normal']
+                            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                            pPr.append(parse_xml(r'<w:jc xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="both"/>'))
+                            pPr.append(parse_xml(r'<w:spacing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:before="0" w:after="120" w:line="276" w:lineRule="auto"/>'))
+                            pPr.append(parse_xml(r'<w:ind xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:left="0" w:right="0" w:firstLine="720"/>'))
 
-                    r = p.add_run(txt)
-                    r.font.name = "Times New Roman"
-                    r.font.size = Pt(12)
-                    r.font.color.rgb = RGBColor(0, 0, 0)
-                    self._italicize_foreign_terms(p)
+                        r = p.add_run(txt)
+                        r.font.name = "Times New Roman"
+                        r.font.size = Pt(12)
+                        r.font.color.rgb = RGBColor(0, 0, 0)
+                        self._italicize_foreign_terms(p)
 
+                elif p_src is not None and len(list(p_src._p)) > (1 if p_src._p.find(qn('w:pPr')) is not None else 0):
+                    self._deep_clone_paragraph_to_doc(p_src._p, doc_src, doc_out, label='BODY_PARAGRAPH')
+
+            # -------------------------------------------------------------
+            # F. CAPTION GAMBAR
+            # -------------------------------------------------------------
             elif lbl == "CAPTION_GAMBAR":
                 current_gambar += 1
                 cap_clean = re.sub(r'^(Gambar|Figure)\s*[\.\d\s:\-]+', '', txt, flags=re.IGNORECASE).strip()
@@ -1779,16 +1922,17 @@ class FormattingActuatorAgent:
                 pPr.append(parse_xml(r'<w:jc xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="center"/>'))
                 pPr.append(parse_xml(r'<w:spacing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:before="60" w:after="180"/>'))
 
-                # "Gambar " sebagai teks bold
                 r_label = p.add_run("Gambar ")
                 r_label.font.name = "Times New Roman"
                 r_label.font.size = Pt(12)
                 r_label.font.bold = True
                 r_label.font.color.rgb = RGBColor(0, 0, 0)
 
-                # SEQ field: STYLEREF 1 \s (nomor Bab) + SEQ Gambar
                 self._add_seq_caption_field(p, "Gambar", current_bab if current_bab > 0 else 1, current_gambar, cap_title)
 
+            # -------------------------------------------------------------
+            # G. CAPTION TABEL
+            # -------------------------------------------------------------
             elif lbl == "CAPTION_TABEL":
                 current_tabel += 1
                 cap_clean = re.sub(r'^(Tabel|Table)\s*[\.\d\s:\-]+', '', txt, flags=re.IGNORECASE).strip()
@@ -1802,25 +1946,111 @@ class FormattingActuatorAgent:
                 pPr.append(parse_xml(r'<w:jc xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="center"/>'))
                 pPr.append(parse_xml(r'<w:spacing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:before="180" w:after="60"/>'))
 
-                # "Tabel " sebagai teks bold
                 r_label = p.add_run("Tabel ")
                 r_label.font.name = "Times New Roman"
                 r_label.font.size = Pt(12)
                 r_label.font.bold = True
                 r_label.font.color.rgb = RGBColor(0, 0, 0)
 
-                # SEQ field: STYLEREF 1 \s (nomor Bab) + SEQ Tabel
                 self._add_seq_caption_field(p, "Tabel", current_bab if current_bab > 0 else 1, current_tabel, cap_title)
 
-                # Salin tabel yang bersesuaian jika ada
-                if table_cursor < len(src_tables):
-                    src_tbl = src_tables[table_cursor]
-                    table_cursor += 1
-                    tbl_clone = copy.deepcopy(src_tbl._tbl)
-                    # Sisipkan tabel tepat setelah paragraf caption (bukan di akhir body)
-                    p._p.addnext(tbl_clone)
-                    tbl_obj = doc_out.tables[-1]
-                    self._format_table_apa7(tbl_obj)
+            # -------------------------------------------------------------
+            # H. DAFTAR PUSTAKA ITEM
+            # -------------------------------------------------------------
+            elif lbl == "DAFTAR_PUSTAKA_ITEM":
+                if p_src is not None and (p_src._p.findall('.//' + qn('w:hyperlink')) or p_src._p.findall('.//' + qn('w:fldSimple'))):
+                    clone = self._deep_clone_paragraph_to_doc(p_src._p, doc_src, doc_out, label='DAFTAR_PUSTAKA_ITEM')
+                    clone_pPr = clone.get_or_add_pPr()
+                    old_ind = clone_pPr.find(qn('w:ind'))
+                    if old_ind is not None:
+                        clone_pPr.remove(old_ind)
+                    clone_pPr.append(parse_xml(r'<w:ind xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:left="720" w:hanging="720"/>'))
+                    old_sp = clone_pPr.find(qn('w:spacing'))
+                    if old_sp is not None:
+                        clone_pPr.remove(old_sp)
+                    clone_pPr.append(parse_xml(r'<w:spacing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:before="0" w:after="120" w:line="276" w:lineRule="auto"/>'))
+                elif txt:
+                    p = doc_out.add_paragraph()
+                    p._p.set('approved_label', 'DAFTAR_PUSTAKA_ITEM')
+                    pPr = p._p.get_or_add_pPr()
+                    pPr.append(parse_xml(r'<w:jc xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="both"/>'))
+                    pPr.append(parse_xml(r'<w:spacing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:before="0" w:after="120" w:line="276" w:lineRule="auto"/>'))
+                    pPr.append(parse_xml(r'<w:ind xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:left="720" w:hanging="720"/>'))
+                    r = p.add_run(txt)
+                    r.font.name = "Times New Roman"
+                    r.font.size = Pt(12)
+                    r.font.color.rgb = RGBColor(0, 0, 0)
+
+            # -------------------------------------------------------------
+            # I. ZERO-LOSS FALLBACK (Label tak dikenal / custom)
+            # -------------------------------------------------------------
+            else:
+                if p_src is not None:
+                    src_text = p_src.text.strip()
+                    has_any_content = bool(src_text) or self._para_has_rich_content(p_src._p)
+                    if has_any_content:
+                        print(f"[Agent 3 - Formatter] Zero-Loss: Label '{lbl}' tidak dikenali, deep-clone paragraf #{orig_idx} apa adanya.")
+                        self._deep_clone_paragraph_to_doc(p_src._p, doc_src, doc_out, label=lbl)
+
+            # === INSERT TABLES MAPPED AFTER THIS PARAGRAPH ===
+            if orig_idx in table_after_para:
+                insert_cursor = doc_out.paragraphs[-1]._p if doc_out.paragraphs else None
+                for tbl_elem in table_after_para[orig_idx]:
+                    if tbl_elem not in inserted_tables:
+                        cloned_tbl = self._deep_clone_table_to_doc(tbl_elem, doc_src, doc_out, after_elem=insert_cursor)
+                        insert_cursor = cloned_tbl
+                        from docx.table import Table
+                        tbl_obj = Table(cloned_tbl, doc_out)
+                        try:
+                            tbl_text = " ".join(c.text.strip().lower() for r in tbl_obj.rows for c in r.cells)
+                            if "materai" in tbl_text:
+                                self._format_materai_box(tbl_obj)
+                            else:
+                                self._format_table_apa7(tbl_obj)
+                        except Exception:
+                            pass
+                        inserted_tables.add(tbl_elem)
+
+        # === ZERO-LOSS: Salin tabel sisa yang belum tersalin ===
+        for src_tbl in doc_src.tables:
+            if src_tbl._tbl not in inserted_tables:
+                cloned_tbl = self._deep_clone_table_to_doc(src_tbl._tbl, doc_src, doc_out)
+                from docx.table import Table
+                tbl_obj = Table(cloned_tbl, doc_out)
+                try:
+                    tbl_text = " ".join(c.text.strip().lower() for r in tbl_obj.rows for c in r.cells)
+                    if "materai" in tbl_text:
+                        self._format_materai_box(tbl_obj)
+                    else:
+                        self._format_table_apa7(tbl_obj)
+                except Exception:
+                    pass
+                inserted_tables.add(src_tbl._tbl)
+
+        # === ZERO-LOSS: Salin elemen body non-paragraf dan non-tabel (w:sdt, dll.) ===
+        src_body_children = list(doc_src.element.body)
+        for child in src_body_children:
+            tag = child.tag
+            # Skip paragraf, tabel, dan sectPr
+            if tag == qn('w:p') or tag == qn('w:tbl') or tag == qn('w:sectPr'):
+                continue
+            clone = copy.deepcopy(child)
+            for blip in clone.findall('.//{http://schemas.openxmlformats.org/drawingml/2006/main}blip'):
+                rid = blip.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed')
+                if rid and rid in doc_src.part.rels:
+                    try:
+                        img_blob = doc_src.part.rels[rid].target_part.blob
+                        img_part = doc_out.part.package.get_or_add_image_part(io.BytesIO(img_blob))
+                        new_rid = doc_out.part.relate_to(img_part, docx.opc.constants.RELATIONSHIP_TYPE.IMAGE)
+                        blip.set('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed', new_rid)
+                    except Exception:
+                        pass
+            sectPr = doc_out.element.body.find(qn('w:sectPr'))
+            if sectPr is not None:
+                sectPr.addprevious(clone)
+            else:
+                doc_out.element.body.append(clone)
+            print(f"[Agent 3 - Formatter] Zero-Loss: Menyalin elemen body non-standar <{tag.split('}')[-1] if '}' in tag else tag}>")
 
         # Generate otomatis Daftar Isi, Daftar Tabel, Daftar Gambar secara dinamis
         self._generate_table_of_contents(doc_out, approved_blueprint.get("paragraphs", []), has_frontmatter=has_frontmatter)
@@ -1837,13 +2067,22 @@ class FormattingActuatorAgent:
                 all_children = list(parent)
                 bab_idx = all_children.index(anchor_bab_p._p)
                 if bab_idx > 0:
-                    last_fm_elem = all_children[bab_idx - 1]
-                    if last_fm_elem.tag == qn('w:p'):
-                        last_fm_pPr = last_fm_elem.get_or_add_pPr()
-                        old_sect = last_fm_pPr.find(qn('w:sectPr'))
-                        if old_sect is not None:
-                            last_fm_pPr.remove(old_sect)
-                        last_fm_pPr.append(copy.deepcopy(sec1_sect_pr))
+                    for k in range(bab_idx - 1, -1, -1):
+                        prev_elem = all_children[k]
+                        if prev_elem.tag == qn('w:p'):
+                            prev_pPr = prev_elem.get_or_add_pPr()
+                            old_sect = prev_pPr.find(qn('w:sectPr'))
+                            if old_sect is not None:
+                                prev_pPr.remove(old_sect)
+                            prev_pPr.append(copy.deepcopy(sec1_sect_pr))
+                            break
+
+        # Pasang root sectPr naskah untuk Section 2 (decimal, start=1, Header UEU)
+        if sec2_sect_pr is not None:
+            body_sect = doc_out.element.body.find(qn('w:sectPr'))
+            if body_sect is not None:
+                doc_out.element.body.remove(body_sect)
+            doc_out.element.body.append(copy.deepcopy(sec2_sect_pr))
 
         # Pastikan TIDAK ADA updateFields di settings agar Word tidak memunculkan dialog security warning
         try:
@@ -1852,6 +2091,16 @@ class FormattingActuatorAgent:
                 settings_elm.remove(uf)
         except Exception:
             pass
+
+        # === AUDIT: Content Integrity Check ===
+        src_para_count = len(doc_src.paragraphs)
+        src_table_count = len(doc_src.tables)
+        out_para_count = len(doc_out.paragraphs)
+        out_table_count = len(doc_out.tables)
+        print(f"\n[Agent 3 - Content Audit] Sumber: {src_para_count} paragraf, {src_table_count} tabel")
+        print(f"[Agent 3 - Content Audit] Output: {out_para_count} paragraf, {out_table_count} tabel")
+        if out_table_count < src_table_count:
+            print(f"[Agent 3 - Content Audit] ⚠️ PERINGATAN: {src_table_count - out_table_count} tabel mungkin belum tersalin!")
 
         out_dir = os.path.dirname(output_docx_path)
         if out_dir:
@@ -2067,7 +2316,8 @@ class FormattingActuatorAgent:
                 # Baris 1: BAB 1 (Center murni)
                 # Baris 2: PENDAHULUAN (Center murni)
                 p.text = ""
-                r_bab = p.add_run(f"BAB {current_bab_num}\n")
+                roman_bab = self._to_roman(current_bab_num)
+                r_bab = p.add_run(f"BAB {roman_bab}\n")
                 r_bab.font.name = "Times New Roman"
                 r_bab.font.size = Pt(14)
                 r_bab.font.bold = True

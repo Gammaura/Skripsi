@@ -379,6 +379,11 @@ class QualityCriticAgent:
             elif item["metadata"].get("has_img"):
                 final_label = "BODY_PARAGRAPH"
 
+            # 9. Karantina Ketat: Setelah Bab 1 dimulai (last_valid_bab_num >= 1), TIDAK BOLEH ADA COVER_METADATA!
+            if last_valid_bab_num >= 1 and final_label == "COVER_METADATA":
+                final_label = "BODY_PARAGRAPH"
+                correction_reason = "Teks berada di dalam Bab Isi naskah (dialihkan dari COVER_METADATA ke BODY_PARAGRAPH)."
+
             if final_label == "SUB_BAB":
                 is_explicit_subsub = bool(
                     item["metadata"].get("is_subsub") or
