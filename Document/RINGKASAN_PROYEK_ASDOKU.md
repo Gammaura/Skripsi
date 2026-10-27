@@ -24,6 +24,7 @@
    - 5.3. Otomatisasi Dynamic Table of Contents (TOC) & Navigation Pane
    - 5.4. Standarisasi Tabel APA 7 & Tipografi Akademik
    - 5.5. Antarmuka Web Interaktif (FastAPI Multi-Page Architecture)
+   - 5.6. Aturan Format Tambahan (Asumsi, Tidak Diatur Pedoman 2018)
 6. [Alur Kerja Sistem (End-to-End Workflow)](#6-alur-kerja-sistem-end-to-end-workflow)
 7. [Metodologi Dataset & Model Machine Learning](#7-metodologi-dataset--model-machine-learning)
 8. [Status Terkini & Hasil Pengujian Empiris](#8-status-terkini--hasil-pengujian-empiris)
@@ -312,6 +313,19 @@ Asdoku mengimplementasikan sistem penjaminan mutu dua tingkat (**Two-Tier SQA**)
   - Tautan unduh instan berkas hasil rapi berawalan `(Asdoku) - ...`.
   - Halaman pembahasan riset lengkap: Flowchart, Pipeline 3 Agen, Data Metodologi, Riwayat Riset, dan Glosarium Istilah Teknis.
 
+### 5.6. Aturan Format Tambahan (Asumsi, Tidak Diatur Pedoman 2018)
+SK Rektor UEU No. 5 Tahun 2018 tidak mengatur seluruh detail tata letak. Untuk kasus berikut, Asdoku menerapkan aturan yang ditetapkan peneliti agar hasil konsisten; aturan ini dicantumkan sebagai asumsi di Bab III.
+
+| No | Kasus | Aturan Asdoku | Alasan |
+| :---: | :--- | :--- | :--- |
+| 1 | Nomor caption gambar/tabel | Angka Arab: `Tabel 3.1`, `Gambar 2.1` (judul bab tetap Romawi `BAB III`) | Mengikuti template resmi Fakultas Ilmu Komputer; pedoman hanya mewajibkan Romawi untuk nomor **bab** |
+| 2 | Daftar bernomor (`1.`, `1)`, `(1)`, `a.`, butir) | Indentasi gantung: nomor di **1,27 cm** (sejajar alinea), teks di **1,9 cm**, baris lanjutan sejajar teks; tiap tingkat masuk 0,63 cm. Berlaku untuk numbering Word maupun nomor ketik manual (nomor tidak dihapus, pemisah dinormalkan menjadi satu Tab) | Bentuk paling umum di skripsi Indonesia; teks lanjutan tidak lagi kembali ke margin |
+| 3 | Judul poin bernomor diikuti paragraf penjelasan (mis. `1. Kontribusi Teori`) | Dijadikan **sub-sub-bab** bernomor otomatis (`1.4.1`), masuk Daftar Isi & Navigation Pane. Syarat: ≤ 8 kata, tebal/berformat judul, tanpa tanda baca kalimat, berada di dalam sub-bab, dan diikuti paragraf penjelasan ≥ 8 kata | Sesuai hierarki bab > sub-bab > sub-sub-bab pada pedoman. Rumusan masalah/tujuan (`1. Apakah ...?`) tetap daftar |
+| 4 | Rumusan hipotesis (`HA1:`, `H1 :`, `H0:`) | Label menggantung: label di **1,27 cm**, pernyataan di **2,54 cm**, baris lanjutan sejajar pernyataan; tebal mengikuti tulisan mahasiswa | Label hipotesis mudah dikenali; konsisten dengan gaya daftar |
+| 5 | Proposal tugas akhir | Format sama dengan pedoman tugas akhir, cakupan Bab I–III | Belum ada pedoman khusus proposal |
+
+**Validasi di Microsoft Word.** Aturan 1–4 diverifikasi langsung di Microsoft Word (otomasi COM) pada dokumen uji P2 dan P3, bukan hanya lewat pemeriksaan XML: nomor sub-bab `1.1`/`2.3.1`, caption `Tabel 1.1`, posisi daftar 1,27/1,9 cm, judul poin `1.4.1–1.4.3`, dan hipotesis 1,27/2,54 cm. Validasi ini diperlukan karena Word mengabaikan elemen OOXML yang tidak sesuai skema tanpa pesan galat (lihat Logbook Sesi 29).
+
 ---
 
 ## 6. Alur Kerja Sistem (End-to-End Workflow)
@@ -403,11 +417,11 @@ Hasil `tests/test_all_documents.py` dengan kode terkini. Kolom *Kesesuaian ML* =
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **P1** Template Resmi UEU | 248 (174) | 13 | 92.5% | 22 | 7 | CONVERGED (2 it) | 100% (8/8) | 0.84 |
 | **P2** Skripsi MBKM | 381 (266) | 97 | 63.5% | 247 | 20 | CONVERGED (2 it) | 100% (8/8) | 1.83 |
-| **P3** Proposal Bab 1-3 | 177 (173) | 42 | 75.7% | 162 | 20 | CONVERGED (2 it) | 100% (8/8) | 0.79 |
-| **P4** Laporan MBKM | 394 (265) | 76 | 71.3% | 216 | 20 | CONVERGED (2 it) | 100% (8/8) | 1.46 |
+| **P3** Proposal Bab 1-3 | 177 (173) | 45 | 74.0% | 162 | 20 | CONVERGED (2 it) | 100% (8/8) | 0.79 |
+| **P4** Laporan MBKM | 394 (265) | 83 | 68.7% | 216 | 20 | CONVERGED (2 it) | 100% (8/8) | 1.46 |
 | **P5** Buku TA Landscape | 250 (153) | 23 | 85.0% | 117 | 20 | CONVERGED (2 it) | 100% (8/8) | 0.84 |
 
-Kesesuaian ML pada naskah nyata (63,5–92,5%) lebih rendah daripada akurasi LODO pada data latih (94,39%), yang menunjukkan celah generalisasi model ke naskah mahasiswa yang beragam; Agent 2 menutup celah tersebut sebelum dokumen diformat.
+Kesesuaian ML pada naskah nyata (63,5–92,5%; diperbarui setelah aturan judul poin pada Sesi 29) lebih rendah daripada akurasi LODO pada data latih (94,39%), yang menunjukkan celah generalisasi model ke naskah mahasiswa yang beragam; Agent 2 menutup celah tersebut sebelum dokumen diformat.
 
 ### 8.2. Analisis Temuan Terkini: Kasus Bab Laporan Magang vs Heading 1
 Pada pengujian naskah non-skripsi (seperti Laporan Magang / Kerja Praktik), ditemukan kasus di mana bab setelah Bab 2 (misalnya `BAB 3 PROFIL PERUSAHAAN` dan `BAB 4 RISET DAN PEMBAHASAN`) tidak dikenali sebagai Heading 1, sehingga sub-bab di bawahnya membengkak hingga penomoran **`2.26`**.

@@ -883,3 +883,40 @@ Berdasarkan hasil uji coba pengguna (`rapi_1791911204_...docx`), ditemukan anoma
 * **Zero-loss:** pada uji sitasi Mendeley Cite, catatan kaki, superscript, dan italic, seluruhnya utuh. Jumlah kata yang hilang di P4 turun dari 979 menjadi 98 (sisanya nomor bab/sub-bab yang memang diganti penomoran otomatis).
 * **Uji non-regresi Active Learning** (split uji basis, n = 108): basis 0,9202; + 5 label manual **0,9306 (diterima)**; + 602 *weak label* Agent 2 **0,6939 (ditolak)**. Kesimpulan: *weak label* hanya dicatat dan tidak dipakai melatih.
 * **Verifikasi model produksi:** prediksi identik 100% dengan model yang dilatih ulang dari `dataset_skripsi.csv`, sehingga model tidak terkontaminasi *weak label*.
+
+---
+
+### Sesi 29: Validasi Hasil Format di Microsoft Word & Penetapan Aturan Format Tambahan
+**Tanggal:** 27 Oktober 2026  
+**Status:** Selesai (diverifikasi langsung di Microsoft Word; P1–P5 lolos 8/8 SQA dan pemeriksaan struktur OOXML)
+
+#### 1. Temuan dari Pengecekan Manual di Word (tidak tertangkap uji SQA):
+1. **Nomor sub-bab `1.1` tidak tampil.** Penyebab utama: elemen `w:lvlRestart` pada definisi multilevel list membuat Word membuang nomor level sub-bab. Diperkuat oleh urutan anak `w:pPr` dan `w:lvl` yang tidak sesuai skema serta nilai `suff="none"` yang tidak sah. LibreOffice 7.3 tetap menampilkan nomor (sebagai `I.1`), sehingga tidak dapat dipakai untuk validasi.
+2. **Daftar Gambar terpisah dari judulnya, dan BAB I bernomor halaman 2.** `sectPr` (pemisah section Romawi/Latin) jatuh ke judul `DAFTAR GAMBAR` karena elemen terakhir sebelum BAB I berupa blok `w:sdt`.
+3. **Daftar Isi ganda pada P2.** Daftar Isi native tidak terdeteksi karena judulnya berada di luar blok `w:sdt`, sehingga Agent 3 juga membuat Daftar Isi sendiri.
+4. **Daftar Tabel/Gambar bawaan kosong** ("No table of contents entries found") karena mengacu style caption yang diganti Agent 3.
+5. **Caption `Tabel III.1`.** Field `STYLEREF` mengambil nomor bab Romawi.
+6. **Daftar bernomor ketik manual** (rumusan masalah) baris lanjutannya kembali ke margin kiri.
+
+#### 2. Metode Validasi:
+* Membuat 6 varian `numbering.xml` (menghapus satu elemen per varian), lalu membaca nomor list yang dihasilkan Microsoft Word melalui otomasi COM (PowerShell). Hanya varian tanpa `w:lvlRestart` yang menampilkan `1.1`.
+* Setiap perbaikan dicek ulang di Word: nomor list, halaman/section per paragraf, indentasi (cm), dan teks caption setelah field diperbarui.
+
+#### 3. Perbaikan:
+* `numbering.py`: hapus `w:lvlRestart` pada level heading, urutkan anak `w:lvl` sesuai skema, `suff="nothing"`.
+* `xml.py`: urutkan dan hapus duplikat anak `w:pPr` sebelum disimpan.
+* `formatter.py`: paragraf pembawa `sectPr` setelah blok `w:sdt`/tabel; nomor bab Arab untuk caption lewat penanda tersembunyi `{SEQ BAB \h}` dan `{SEQ BAB \c}`.
+* `toc.py`: deteksi Daftar Isi native lewat galeri "Table of Contents" atau field `TOC \o`; instruksi Daftar Tabel/Gambar bawaan diarahkan ke caption `SEQ Tabel/Gambar`.
+* `tests/test_all_documents.py`: pemeriksaan struktur OOXML (urutan `w:pPr`/`w:lvl`, `lvlRestart` pada heading). Kontrol negatif: file versi lama langsung tertangkap.
+
+#### 4. Aturan Format Tambahan yang Disepakati (pedoman 2018 tidak mengatur):
+1. Nomor caption memakai angka Arab (`Tabel 3.1`); nomor bab tetap Romawi sesuai pedoman.
+2. Daftar bernomor: nomor di 1,27 cm, teks di 1,9 cm, indentasi gantung; berlaku juga untuk nomor ketik manual.
+3. Judul poin bernomor yang diikuti paragraf penjelasan (`1. Kontribusi Teori`) dijadikan sub-sub-bab `1.4.1` oleh Agent 2.
+4. Hipotesis (`HA1:`): label di 1,27 cm, pernyataan di 2,54 cm.
+5. Lingkup sistem dibatasi pada dokumen tugas akhir; proposal mengikuti pedoman tugas akhir dengan cakupan Bab I–III.
+
+#### 5. Hasil:
+* Di Word, P2 menampilkan BAB I → 1.1–1.4 → BAB II → 2.1 … 2.3.1. P3 menampilkan BAB I (halaman 1) → 1.1–1.4.3 → caption Tabel 1.1, daftar 1,27/1,9 cm, dan hipotesis 1,27/2,54 cm.
+* Koreksi Agent 2 bertambah karena aturan judul poin: P3 42 → 45, P4 76 → 83. Label lain tidak berubah.
+* Commit pada branch `refactor/audit-mas-zero-loss`: `7d8feb9`, `4894f46`, `01bfd92`.
