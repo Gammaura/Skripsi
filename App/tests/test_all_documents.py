@@ -7,68 +7,81 @@ import os
 import sys
 import time
 
+from docx import Document
+
 # Pastikan root workspace masuk ke sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.agents.inspector import InspectorAgent
-from src.agents.critic import QualityCriticAgent
-from src.agents.formatter import FormattingActuatorAgent
+from src.agents.inspector import InspectorAgent  # noqa: E402
+from src.agents.critic import QualityCriticAgent  # noqa: E402
+from src.agents.formatter import FormattingActuatorAgent  # noqa: E402
 
-def test_pipeline():
-    print("=" * 75)
-    print("  ASDOKU MULTI-AGENT SYSTEM (MAS) — PENGUJIAN OTOMATIS SUITE P1 S/D P5")
-    print("=" * 75)
+INPUT_DIR = "data/dokumen_uji"
+OUTPUT_DIR = "output/pengujian"
+TEST_DOCS = [
+    ("P1", "P1_Template_Resmi_UEU.docx", "Template Resmi Tugas Akhir UEU"),
+    ("P2", "P2_Skripsi_Mbkm_Dhicky.docx", "Skripsi MBKM Mandiri Dhicky"),
+    ("P3", "P3_Proposal_Bab1_3_PBB.docx", "Naskah Proposal Bab I-III"),
+    ("P4", "P4_Laporan_Mbkm_Arditya.docx", "Laporan MBKM Arditya"),
+    ("P5", "P5_Buku_TA_Landscape.docx", "Template Buku TA Section Landscape"),
+]
+RULE = "=" * 75
 
-    inspector = InspectorAgent()
-    critic = QualityCriticAgent()
-    formatter = FormattingActuatorAgent()
 
-    test_docs = [
-        ("P1", "P1_Template_Resmi_UEU.docx", "Template Resmi Tugas Akhir UEU"),
-        ("P2", "P2_Skripsi_Mbkm_Dhicky.docx", "Skripsi MBKM Mandiri Dhicky"),
-        ("P3", "P3_Proposal_Bab1_3_PBB.docx", "Naskah Proposal Bab I-III"),
-        ("P4", "P4_Laporan_Mbkm_Arditya.docx", "Laporan MBKM Arditya"),
-        ("P5", "P5_Buku_TA_Landscape.docx", "Template Buku TA Section Landscape")
-    ]
+def _is_valid_docx(path: str) -> bool:
+    try:
+        return len(Document(path).paragraphs) > 0
+    except Exception:
+        return False
 
-    os.makedirs("output/pengujian", exist_ok=True)
-    summary_results = []
 
-    for code, fname, label in test_docs:
-        in_path = os.path.join("data/dokumen_uji", fname)
-        out_name = f"(Asdoku) - {fname}"
-        out_path = os.path.join("output/pengujian", out_name)
+def _run_document(inspector, critic, formatter, code: str, fname: str, label: str) -> dict:
+    in_path = os.path.join(INPUT_DIR, fname)
+    out_path = os.path.join(OUTPUT_DIR, f"(Asdoku) - {fname}")
+    print(f"\n[{code}] Menguji: {label} ({fname})...")
+    start = time.time()
 
-        print(f"\n[{code}] Menguji: {label} ({fname})...")
-        start = time.time()
+    draft = inspector.inspect(in_path)  # 1. Inspector
+    approved = critic.evaluate_and_refine(draft)  # 2. Quality Critic
+    res_file = formatter.format_document(in_path, approved, out_path)  # 3. Formatter Actuator
 
-        # 1. Inspector
-        draft = inspector.inspect(in_path)
-        # 2. Quality Critic
-        approved = critic.evaluate_and_refine(draft)
-        # 3. Formatter Actuator
-        res_file = formatter.format_document(in_path, approved, out_path)
-        
-        elapsed = round(time.time() - start, 2)
-        summary_results.append({
-            "code": code,
-            "name": fname,
-            "paras": draft["total_paragraphs"],
-            "corrections": approved["total_corrections"],
-            "chapters": len(approved["approved_chapters"]),
-            "time": elapsed,
-            "status": "PASS" if os.path.exists(res_file) else "FAIL"
-        })
-        print(f"[{code}] SELESAI ({elapsed}s) -> Disimpan ke: {res_file}")
+    elapsed = round(time.time() - start, 2)
+    print(f"[{code}] SELESAI ({elapsed}s) -> Disimpan ke: {res_file}")
+    return {
+        "code": code,
+        "name": fname,
+        "paras": draft["total_paragraphs"],
+        "corrections": approved["total_corrections"],
+        "chapters": len(approved["approved_chapters"]),
+        "time": elapsed,
+        "status": "PASS" if _is_valid_docx(res_file) else "FAIL",
+    }
 
-    print("\n" + "=" * 75)
+
+def _print_summary(results: list) -> None:
+    print("\n" + RULE)
     print("                      HASIL PENGUJIAN SELURUH DOKUMEN")
-    print("=" * 75)
+    print(RULE)
     print(f"{'Kode':<6} | {'Dokumen':<32} | {'Paragraf':<8} | {'Koreksi':<8} | {'Waktu':<7} | {'Status'}")
     print("-" * 75)
-    for r in summary_results:
+    for r in results:
         print(f"{r['code']:<6} | {r['name']:<32} | {r['paras']:<8} | {r['corrections']:<8} | {r['time']:<5}s | {r['status']}")
-    print("=" * 75)
+    print(RULE)
+
+
+def test_pipeline():
+    print(RULE)
+    print("  ASDOKU MULTI-AGENT SYSTEM (MAS) — PENGUJIAN OTOMATIS SUITE P1 S/D P5")
+    print(RULE)
+
+    agents = (InspectorAgent(), QualityCriticAgent(), FormattingActuatorAgent())
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    results = [_run_document(*agents, *doc) for doc in TEST_DOCS]
+    _print_summary(results)
+
+    failed = [r["code"] for r in results if r["status"] != "PASS"]
+    assert not failed, f"Dokumen gagal diformat: {failed}"
+
 
 if __name__ == "__main__":
     test_pipeline()

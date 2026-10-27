@@ -12,14 +12,15 @@ Dataset yang Dihasilkan:
 7. data/datasets/dataset_7_body_bibliography.csv: Paragraf Isi, Kutipan Langsung, & Daftar Pustaka
 """
 
+import csv
 import os
 import re
-import csv
-import glob
-from typing import List, Dict, Any, Tuple
+from itertools import pairwise
+from typing import Any, Dict, List, Optional
+
 from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml.ns import qn
+
+from src.paragraph_features import extract_paragraph_features, get_font_name
 
 # Pola Regex Baku UEU 2018
 BAB_PATTERN = re.compile(r'^(BAB\s+[IVX\d]+|BAB\s+\d+)(\s*[:\-\n\r]\s*|\s+|$)', re.IGNORECASE)
@@ -34,15 +35,8 @@ CAPTION_GAMBAR_PATTERN = re.compile(r'^(Gambar|Figure)\s+(\d+[\.\-]\d+|\.|\d+).*
 CAPTION_TABEL_PATTERN = re.compile(r'^(Tabel|Table)\s+(\d+[\.\-]\d+|\.|\d+).*', re.IGNORECASE)
 SOURCE_PATTERN = re.compile(r'^\(?(Sumber|Source)\s*[:\-].*', re.IGNORECASE)
 EQUATION_NUM_PATTERN = re.compile(r'.*\(\d+[\.\-]\d+\)\s*$', re.IGNORECASE)
-
-FRONTMATTER_KEYWORDS = [
-    "LEMBAR PENGESAHAN", "HALAMAN PENGESAHAN", "PENGESAHAN",
-    "HALAMAN PERNYATAAN KEASLIAN", "PERNYATAAN KEASLIAN",
-    "KATA PENGANTAR", "UCAPAN TERIMA KASIH",
-    "ABSTRAK", "ABSTRACT",
-    "DAFTAR ISI", "DAFTAR TABEL", "DAFTAR GAMBAR",
-    "DAFTAR LAMPIRAN", "DAFTAR SIMBOL", "DAFTAR RUMUS"
-]
+NIM_PATTERN = re.compile(r'\b\d{9,12}\b')
+COVER_YEAR_PATTERN = re.compile(r'^(20\d\d|JAKARTA.*20\d\d)$')
 
 CANONICAL_CHAPTER_NAMES = [
     "PENDAHULUAN", "TINJAUAN PUSTAKA", "LANDASAN TEORI", "DASAR TEORI",
@@ -51,45 +45,98 @@ CANONICAL_CHAPTER_NAMES = [
     "HASIL DAN PEMBAHASAN", "PEMBAHASAN", "IMPLEMENTASI",
     "KESIMPULAN DAN SARAN", "PENUTUP", "KESIMPULAN"
 ]
+FRONTMATTER_ZONE_TRIGGERS = ("LEMBAR PENGESAHAN", "HALAMAN PENGESAHAN", "PERNYATAAN KEASLIAN", "KATA PENGANTAR")
+FRONTMATTER_LIST_TITLES = ("DAFTAR ISI", "DAFTAR TABEL", "DAFTAR GAMBAR")
+BIBLIOGRAPHY_TITLES = ("DAFTAR PUSTAKA", "DAFTAR REFERENSI")
+FRONT_ZONES = ("COVER", "FRONTMATTER", "FRONTMATTER_LISTS")
+MATH_SYMBOLS = ("∑", "√", "∫", "≈", "≤", "≥", "λ", "μ")
+MAX_CAPTION_WORDS = 25
 
 MONOSPACE_FONTS = {"consolas", "courier", "courier new", "lucida console", "monaco", "source code pro"}
 CODE_KEYWORDS = {"def ", "select ", "from ", "where ", "public class ", "function(", "import ", "return ", "if (", "while ("}
 
-def clean_text(text: str) -> str:
-    if not text:
-        return ""
-    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-    return re.sub(r'\s+', ' ', text).strip()
+OUT_DIR = "data/datasets"
+GOLDEN_DOCUMENTS = [
+    # HANYA MENGGUNAKAN 4 DOKUMEN GOLDEN DATASET BERSIH BUATAN USER: (path, doc_id, nama CSV modular)
+    ("Dataset Asdoku/Dataset Asdoku 1.docx", "ASDOKU_1_TEMPLATE_UTUH", "dataset_asdoku_1_template_keseluruhan.csv"),
+    ("Dataset Asdoku/Dataset Asdoku 2.docx", "ASDOKU_2_TOC_HEADINGS", "dataset_asdoku_2_headings_toc.csv"),
+    ("Dataset Asdoku/Dataset Asdoku 3.docx", "ASDOKU_3_FIGURES_TOF", "dataset_asdoku_3_figures.csv"),
+    ("Dataset Asdoku/Dataset Asdoku 4.docx", "ASDOKU_4_TABLES_TOT", "dataset_asdoku_4_tables.csv"),
+]
 
-def get_font_info(p) -> Tuple[str, float, bool, bool]:
-    name, size, bold, italic = "Times New Roman", 12.0, False, False
-    for r in p.runs:
-        if r.text.strip():
-            if r.font.name:
-                name = r.font.name
-            elif p.style and p.style.font and p.style.font.name:
-                name = p.style.font.name
+# Kolom per dataset spesialis (urutan = urutan kolom CSV; 'label' selalu terakhir)
+ZONING_COLUMNS = ("doc_id", "para_id", "text", "doc_pos", "is_bold", "has_pgbrk", "style")
+COVER_COLUMNS = ("doc_id", "para_id", "text", "font_size", "is_bold", "align", "doc_pos")
+FIGURE_COLUMNS = ("doc_id", "para_id", "text", "is_below_drawing", "align", "font_size")
+TABLE_COLUMNS = ("doc_id", "para_id", "text", "is_above_table", "align", "font_size")
+FORMULA_COLUMNS = ("doc_id", "para_id", "text", "is_monospace", "font_name", "font_size", "has_math")
+HEADING_COLUMNS = ("doc_id", "para_id", "text", "font_size", "is_bold", "has_num", "word_count", "uppercase_ratio")
+BODY_COLUMNS = ("doc_id", "para_id", "text", "first_line_indent", "left_indent", "line_spacing", "word_count")
 
-            if r.font.size:
-                size = r.font.size.pt
-            elif p.style and p.style.font and p.style.font.size:
-                size = p.style.font.size.pt
+DATASET_FILES = {
+    "cover_frontmatter": "dataset_1_cover_frontmatter.csv",
+    "zoning": "dataset_2_zoning.csv",
+    "headings_vs_lists": "dataset_3_headings_vs_lists.csv",
+    "figures": "dataset_4_figures.csv",
+    "tables": "dataset_5_tables.csv",
+    "code_formulas": "dataset_6_code_formulas.csv",
+    "body_bibliography": "dataset_7_body_bibliography.csv",
+}
 
-            bold = r.font.bold if r.font.bold is not None else (p.style.font.bold if p.style and p.style.font else False)
-            italic = r.font.italic if r.font.italic is not None else (p.style.font.italic if p.style and p.style.font else False)
-            break
-    return name, size, bool(bold), bool(italic)
 
-def get_alignment_str(align) -> str:
-    if align == WD_ALIGN_PARAGRAPH.CENTER:
-        return "CENTER"
-    elif align == WD_ALIGN_PARAGRAPH.JUSTIFY:
-        return "JUSTIFY"
-    elif align == WD_ALIGN_PARAGRAPH.RIGHT:
-        return "RIGHT"
-    elif align == WD_ALIGN_PARAGRAPH.LEFT:
-        return "LEFT"
-    return "DEFAULT"
+def _tag(elem) -> str:
+    return elem.tag.split('}')[-1]
+
+
+def _paragraph_item(p, doc_id: str, elem_idx: int, para_id: int, total_elements: int,
+                    is_above_table: bool, is_below_table: bool) -> Dict[str, Any]:
+    f = extract_paragraph_features(p, elem_idx, total_elements)
+    font_name = get_font_name(p)
+    return {
+        "elem_type": "paragraph",
+        "doc_id": doc_id,
+        "elem_idx": elem_idx,
+        "para_id": para_id,
+        "text": f["text"],
+        "style": f["style"],
+        "font_name": font_name,
+        "font_size": f["font_size"],
+        "is_bold": f["is_bold"],
+        "is_italic": f["is_italic"],
+        "align": f["align"],
+        "has_num": f["has_num"],
+        "has_img": f["has_img"],
+        "has_pgbrk": f["has_pgbrk"],
+        "has_math": "oMath" in p._p.xml,
+        "is_above_table": is_above_table,
+        "is_below_table": is_below_table,
+        "is_below_drawing": False,  # dihitung di second-pass
+        "space_before": f["space_before"],
+        "space_after": f["space_after"],
+        "line_spacing": f["line_spacing"],
+        "first_line_indent": f["first_line_indent"],
+        "left_indent": f["left_indent"],
+        "char_len": f["char_len"],
+        "word_count": f["word_count"],
+        "uppercase_ratio": f["uppercase_ratio"],
+        "is_monospace": font_name.lower() in MONOSPACE_FONTS,
+        "has_code_keywords": any(kw in f["text"].lower() for kw in CODE_KEYWORDS),
+        "doc_pos": f["doc_pos"],
+    }
+
+
+def _table_item(doc_id: str, elem_idx: int, total_elements: int) -> Dict[str, Any]:
+    return {
+        "elem_type": "table", "doc_id": doc_id, "elem_idx": elem_idx, "para_id": -1,
+        "text": "[TABLE_CONTAINER]", "style": "Table", "font_name": "Times New Roman", "font_size": 10.0,
+        "is_bold": False, "is_italic": False, "align": "CENTER",
+        "has_num": False, "has_img": False, "has_pgbrk": False, "has_math": False,
+        "is_above_table": False, "is_below_table": False, "is_below_drawing": False,
+        "space_before": 0.0, "space_after": 0.0, "line_spacing": 1.0, "first_line_indent": 0.0, "left_indent": 0.0,
+        "char_len": 0, "word_count": 0, "uppercase_ratio": 0.0, "is_monospace": False, "has_code_keywords": False,
+        "doc_pos": round(elem_idx / float(total_elements), 4),
+    }
+
 
 def extract_document_elements(file_path: str, doc_id: str) -> List[Dict[str, Any]]:
     """
@@ -98,472 +145,214 @@ def extract_document_elements(file_path: str, doc_id: str) -> List[Dict[str, Any
     """
     doc = Document(file_path)
     body_elements = doc._body._element
-    total_elements = len(body_elements)
-    
-    parsed_items = []
-    para_counter = 0
+    tags = [_tag(elem) for elem in body_elements]
+    total = len(tags)
+    paragraphs = iter(doc.paragraphs)  # urutan doc.paragraphs = urutan w:p di body
 
-    # Tracking elemen tetangga
-    for idx, elem in enumerate(body_elements):
-        tag = elem.tag.split('}')[-1]
+    items = []
+    para_id = 0
+    for idx, tag in enumerate(tags):
+        if tag == "p":
+            p = next(paragraphs)
+            is_above_table = idx + 1 < total and tags[idx + 1] == "tbl"
+            is_below_table = idx > 0 and tags[idx - 1] == "tbl"
+            items.append(_paragraph_item(p, doc_id, idx, para_id, total, is_above_table, is_below_table))
+            para_id += 1
+        elif tag == "tbl":
+            items.append(_table_item(doc_id, idx, total))
 
-        if tag == 'p':
-            # Ini paragraf
-            p = doc.paragraphs[para_counter] if para_counter < len(doc.paragraphs) else None
-            para_counter += 1
-            if p is None:
-                continue
+    # Second pass: paragraf tepat setelah elemen bergambar
+    for prev, item in pairwise(items):
+        if prev["has_img"] and item["elem_type"] == "paragraph":
+            item["is_below_drawing"] = True
+    return items
 
-            text = clean_text(p.text)
-            font_name, size, bold, italic = get_font_info(p)
-            align = get_alignment_str(p.alignment)
-            
-            pPr = p._p.pPr
-            has_num = bool(pPr is not None and pPr.numPr is not None)
-            has_img = bool(p._p.xpath(".//w:drawing | .//w:pict"))
-            has_pgbrk = bool(p._p.xpath('.//w:br[@w:type="page"]'))
-            has_math = bool('oMath' in p._p.xml)
 
-            # Cek tetangga berikutnya apakah tabel
-            is_above_table = False
-            if idx + 1 < total_elements:
-                next_tag = body_elements[idx + 1].tag.split('}')[-1]
-                if next_tag == 'tbl':
-                    is_above_table = True
+def _row(item: Dict[str, Any], columns, label: str, label_key: str = "label", **overrides) -> Dict[str, Any]:
+    row = {col: overrides.get(col, item[col]) for col in columns}
+    row[label_key] = label
+    return row
 
-            # Cek tetangga sebelumnya apakah tabel
-            is_below_table = False
-            if idx > 0:
-                prev_tag = body_elements[idx - 1].tag.split('}')[-1]
-                if prev_tag == 'tbl':
-                    is_below_table = True
 
-            # Indentasi & Spacing
-            sb, sa, ls = 0.0, 0.0, 1.15
-            fl, li = 0.0, 0.0
-            if pPr is not None:
-                sp = pPr.find(qn('w:spacing'))
-                if sp is not None:
-                    if qn('w:before') in sp.attrib:
-                        sb = float(sp.attrib[qn('w:before')]) / 20.0
-                    if qn('w:after') in sp.attrib:
-                        sa = float(sp.attrib[qn('w:after')]) / 20.0
-                    if qn('w:line') in sp.attrib:
-                        ls = float(sp.attrib[qn('w:line')]) / 240.0
-                ind = pPr.find(qn('w:ind'))
-                if ind is not None:
-                    if qn('w:firstLine') in ind.attrib:
-                        fl = float(ind.attrib[qn('w:firstLine')]) / 567.0
-                    elif qn('w:hanging') in ind.attrib:
-                        fl = -float(ind.attrib[qn('w:hanging')]) / 567.0
-                    if qn('w:left') in ind.attrib:
-                        li = float(ind.attrib[qn('w:left')]) / 567.0
+def _next_zone(zone: str, text: str, upper: str, style_lower: str, is_bold: bool, in_sistematika: bool) -> str:
+    if any(kw in upper for kw in FRONTMATTER_ZONE_TRIGGERS):
+        return "FRONTMATTER"
+    if upper in FRONTMATTER_LIST_TITLES:
+        return "FRONTMATTER_LISTS"
+    if (BAB_PATTERN.match(text) and is_bold) or ("heading 1" in style_lower and upper in CANONICAL_CHAPTER_NAMES):
+        return zone if in_sistematika else "BODY_BAB"
+    if upper in BIBLIOGRAPHY_TITLES:
+        return "BIBLIOGRAPHY"
+    if upper.startswith("LAMPIRAN") and (is_bold or "heading" in style_lower):
+        return "APPENDIX"
+    return zone
 
-            char_len = len(text)
-            word_count = len(text.split())
-            upper_ratio = sum(1 for c in text if c.isupper()) / float(char_len) if char_len > 0 else 0.0
-            is_mono = font_name.lower() in MONOSPACE_FONTS
-            has_code_kw = any(kw in text.lower() for kw in CODE_KEYWORDS)
 
-            parsed_items.append({
-                "elem_type": "paragraph",
-                "doc_id": doc_id,
-                "elem_idx": idx,
-                "para_id": para_counter - 1,
-                "text": text,
-                "style": p.style.name if p.style else "Normal",
-                "font_name": font_name,
-                "font_size": size,
-                "is_bold": bold,
-                "is_italic": italic,
-                "align": align,
-                "has_num": has_num,
-                "has_img": has_img,
-                "has_pgbrk": has_pgbrk,
-                "has_math": has_math,
-                "is_above_table": is_above_table,
-                "is_below_table": is_below_table,
-                "is_below_drawing": False, # dihitung di second-pass
-                "space_before": round(sb, 2),
-                "space_after": round(sa, 2),
-                "line_spacing": round(ls, 2),
-                "first_line_indent": round(fl, 2),
-                "left_indent": round(li, 2),
-                "char_len": char_len,
-                "word_count": word_count,
-                "uppercase_ratio": round(upper_ratio, 3),
-                "is_monospace": is_mono,
-                "has_code_keywords": has_code_kw,
-                "doc_pos": round(idx / float(total_elements), 4)
-            })
+def _cover_label(item: Dict[str, Any], zone: str, upper: str, is_toc: bool) -> str:
+    text = item["text"]
+    if zone == "COVER" and item["doc_pos"] < 0.15:
+        if item["word_count"] <= 15 and item["is_bold"] and upper == text and item["font_size"] >= 14:
+            return "COVER_TITLE"
+        if "SKRIPSI" in upper or "TUGAS AKHIR" in upper or "LAPORAN" in upper:
+            return "COVER_TYPE"
+        if any(k in upper for k in ("NIM", "NPM")) or NIM_PATTERN.search(text):
+            return "COVER_AUTHOR_NIM"
+        if any(k in upper for k in ("UNIVERSITAS", "FAKULTAS", "PROGRAM STUDI", "JURUSAN")):
+            return "COVER_INSTITUTION"
+        if COVER_YEAR_PATTERN.match(upper):
+            return "COVER_YEAR"
+        return "OTHER_FRONTMATTER"
+    if any(k in upper for k in ("PEMBIMBING", "PENGUJI", "DEKAN", "KETUA PROGRAM STUDI", "TANDA TANGAN")):
+        return "PENGESAHAN_METADATA"
+    if upper in ("ABSTRAK", "ABSTRACT"):
+        return "ABSTRAK_TITLE"
+    if upper.startswith("KATA KUNCI") or upper.startswith("KEYWORDS"):
+        return "ABSTRAK_KEYWORDS"
+    if is_toc:
+        return "TOC_ENTRY"
+    return "OTHER_FRONTMATTER"
 
-        elif tag == 'tbl':
-            # Ini elemen tabel
-            parsed_items.append({
-                "elem_type": "table",
-                "doc_id": doc_id,
-                "elem_idx": idx,
-                "para_id": -1,
-                "text": "[TABLE_CONTAINER]",
-                "style": "Table",
-                "font_name": "Times New Roman",
-                "font_size": 10.0,
-                "is_bold": False,
-                "is_italic": False,
-                "align": "CENTER",
-                "has_num": False,
-                "has_img": False,
-                "has_pgbrk": False,
-                "has_math": False,
-                "is_above_table": False,
-                "is_below_table": False,
-                "is_below_drawing": False,
-                "space_before": 0.0,
-                "space_after": 0.0,
-                "line_spacing": 1.0,
-                "first_line_indent": 0.0,
-                "left_indent": 0.0,
-                "char_len": 0,
-                "word_count": 0,
-                "uppercase_ratio": 0.0,
-                "is_monospace": False,
-                "has_code_keywords": False,
-                "doc_pos": round(idx / float(total_elements), 4)
-            })
 
-    # Second pass: tandai is_below_drawing
-    for i in range(1, len(parsed_items)):
-        if parsed_items[i-1]["has_img"] and parsed_items[i]["elem_type"] == "paragraph":
-            parsed_items[i]["is_below_drawing"] = True
+def _figure_table_rows(item: Dict[str, Any], prev_item: Optional[Dict[str, Any]]):
+    """Baris dataset gambar/tabel untuk satu paragraf: ([(nama dataset, baris)], berhenti?).
 
-    return parsed_items
-
-def classify_and_distribute(all_docs_items: List[List[Dict[str, Any]]]):
+    'berhenti' = True berarti paragraf tidak diproses lagi oleh dataset rumus, heading & body.
     """
-    Mengklasifikasikan item ke dalam 7 Dataset Master Spesialis secara ketat.
-    """
-    d1_cover_frontmatter = []
-    d2_zoning = []
-    d3_headings_vs_lists = []
-    d4_figures = []
-    d5_tables = []
-    d6_code_formulas = []
-    d7_body_bibliography = []
+    text, word_count = item["text"], item["word_count"]
+    is_source = SOURCE_PATTERN.match(text)
+    rows = []
+
+    if CAPTION_GAMBAR_PATTERN.match(text) and word_count <= MAX_CAPTION_WORDS:
+        return [("figures", _row(item, FIGURE_COLUMNS, "CAPTION_GAMBAR"))], True
+    if item["has_img"]:
+        # Gambar tetap lanjut diperiksa oleh pilar berikutnya
+        rows.append(("figures", _row(item, FIGURE_COLUMNS, "FIGURE_IMAGE", text="[IMAGE_DRAWING]", is_below_drawing=False)))
+    elif is_source and (item["is_below_drawing"] or (prev_item is not None and CAPTION_GAMBAR_PATTERN.match(prev_item["text"]))):
+        return [("figures", _row(item, FIGURE_COLUMNS, "FIGURE_SOURCE", is_below_drawing=True))], True
+
+    if CAPTION_TABEL_PATTERN.match(text) and word_count <= MAX_CAPTION_WORDS:
+        return rows + [("tables", _row(item, TABLE_COLUMNS, "CAPTION_TABEL"))], True
+    if is_source and item["is_below_table"]:
+        return rows + [("tables", _row(item, TABLE_COLUMNS, "TABLE_SOURCE", is_above_table=False))], True
+    return rows, False
+
+
+def _formula_row(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    text = item["text"]
+    if item["has_math"] or EQUATION_NUM_PATTERN.match(text) or (any(s in text for s in MATH_SYMBOLS) and item["word_count"] <= 15):
+        return _row(item, FORMULA_COLUMNS, "EQUATION_FORMULA")
+    if item["is_monospace"] or (item["has_code_keywords"] and ("{" in text or ";" in text or "=" in text)):
+        return _row(item, FORMULA_COLUMNS, "CODE_SNIPPET", is_monospace=True, has_math=False)
+    return None
+
+
+def _heading_flags(item: Dict[str, Any], upper: str, style_lower: str):
+    text, is_bold, word_count = item["text"], item["is_bold"], item["word_count"]
+    no_period = not text.endswith(".")
+    is_h1 = bool((BAB_PATTERN.match(text) and is_bold and word_count <= 10) or ("heading 1" in style_lower and upper in CANONICAL_CHAPTER_NAMES))
+    is_h2 = bool(HEADING2_PATTERN.match(text) and (is_bold or "heading 2" in style_lower) and word_count <= 15 and no_period)
+    is_h3 = bool(HEADING3_PATTERN.match(text) and (is_bold or "heading 3" in style_lower) and word_count <= 15 and no_period)
+    return is_h1, is_h2, is_h3
+
+
+def _heading_or_list_label(item: Dict[str, Any], is_h1: bool, is_h2: bool, is_h3: bool) -> Optional[str]:
+    text = item["text"]
+    if is_h1:
+        return "HEADING_1"
+    if is_h2:
+        return "HEADING_2"
+    if is_h3:
+        return "HEADING_3"
+    if LIST_NUMBER_PATTERN.match(text):
+        return "LIST_NUMBERED"
+    if LIST_ALPHA_PATTERN.match(text):
+        return "LIST_ALPHABET"
+    if LIST_BULLET_PATTERN.match(text) or item["has_num"]:
+        return "LIST_BULLET"
+    return None
+
+
+def _body_label(item: Dict[str, Any], zone: str, upper: str, is_heading: bool) -> Optional[str]:
+    if zone == "BIBLIOGRAPHY":
+        return "BIBLIOGRAPHY_TITLE" if upper in BIBLIOGRAPHY_TITLES else "BIBLIOGRAPHY_ENTRY"
+    if zone == "BODY_BAB" and not is_heading:
+        # Kutipan langsung panjang (indent kiri besar & teks panjang)
+        return "BLOCK_QUOTE" if item["left_indent"] >= 0.8 and item["char_len"] > 100 else "BODY_PARAGRAPH"
+    return None
+
+
+def classify_documents(all_docs_items: List[List[Dict[str, Any]]]) -> Dict[str, List[Dict[str, Any]]]:
+    """Mengklasifikasikan item ke dalam 7 Dataset Master Spesialis secara ketat."""
+    datasets = {name: [] for name in DATASET_FILES}
 
     for doc_items in all_docs_items:
-        current_zone = "COVER"
+        zone = "COVER"
         in_sistematika = False
-        total = len(doc_items)
 
         for i, item in enumerate(doc_items):
             if item["elem_type"] == "table":
-                # Masukkan ke ekosistem tabel
-                d5_tables.append({**item, "label": "TABLE_CONTAINER"})
+                datasets["tables"].append({**item, "label": "TABLE_CONTAINER"})
+                continue
+            if item["char_len"] == 0:
                 continue
 
             text = item["text"]
             upper = text.upper()
-            word_count = item["word_count"]
-            char_len = item["char_len"]
-            doc_pos = item["doc_pos"]
             style_lower = item["style"].lower()
             is_bold = item["is_bold"]
-
-            if char_len == 0:
-                continue
-
             is_toc = "toc" in style_lower or "table of figures" in style_lower
 
-            # -------------------------------------------------------------
-            # Tracking Zona Dokumen
-            # -------------------------------------------------------------
             if not is_toc:
-                if any(kw in upper for kw in ["LEMBAR PENGESAHAN", "HALAMAN PENGESAHAN", "PERNYATAAN KEASLIAN", "KATA PENGANTAR"]):
-                    current_zone = "FRONTMATTER"
-                elif any(upper == kw for kw in ["DAFTAR ISI", "DAFTAR TABEL", "DAFTAR GAMBAR"]):
-                    current_zone = "FRONTMATTER_LISTS"
-                elif (BAB_PATTERN.match(text) and is_bold) or ("heading 1" in style_lower and upper in CANONICAL_CHAPTER_NAMES):
-                    if not in_sistematika:
-                        current_zone = "BODY_BAB"
-                elif any(upper == kw for kw in ["DAFTAR PUSTAKA", "DAFTAR REFERENSI"]):
-                    current_zone = "BIBLIOGRAPHY"
-                elif upper.startswith("LAMPIRAN") and (is_bold or "heading" in style_lower):
-                    current_zone = "APPENDIX"
+                zone = _next_zone(zone, text, upper, style_lower, is_bold, in_sistematika)
+            datasets["zoning"].append(_row(item, ZONING_COLUMNS, zone, label_key="zone_label", text=text[:100]))
 
-            # Rekam ke Dataset 2: Zoning
-            d2_zoning.append({
-                "doc_id": item["doc_id"],
-                "para_id": item["para_id"],
-                "text": text[:100],
-                "doc_pos": doc_pos,
-                "is_bold": is_bold,
-                "has_pgbrk": item["has_pgbrk"],
-                "style": item["style"],
-                "zone_label": current_zone
-            })
-
-            # -------------------------------------------------------------
             # Sistematika Penulisan Shield
-            # -------------------------------------------------------------
             if "SISTEMATIKA PENULISAN" in upper:
                 in_sistematika = True
             elif in_sistematika and (BAB_PATTERN.match(text) or upper in CANONICAL_CHAPTER_NAMES) and is_bold:
                 in_sistematika = False
 
-            # -------------------------------------------------------------
-            # 1. DATASET 1: COVER & FRONTMATTER METADATA
-            # -------------------------------------------------------------
-            if current_zone in ["COVER", "FRONTMATTER", "FRONTMATTER_LISTS"]:
-                cover_label = "OTHER_FRONTMATTER"
-                if current_zone == "COVER" and doc_pos < 0.15:
-                    if word_count <= 15 and is_bold and upper == text and item["font_size"] >= 14:
-                        cover_label = "COVER_TITLE"
-                    elif "SKRIPSI" in upper or "TUGAS AKHIR" in upper or "LAPORAN" in upper:
-                        cover_label = "COVER_TYPE"
-                    elif any(k in upper for k in ["NIM", "NPM"]) or re.search(r'\b\d{9,12}\b', text):
-                        cover_label = "COVER_AUTHOR_NIM"
-                    elif any(k in upper for k in ["UNIVERSITAS", "FAKULTAS", "PROGRAM STUDI", "JURUSAN"]):
-                        cover_label = "COVER_INSTITUTION"
-                    elif re.match(r'^(20\d\d|JAKARTA.*20\d\d)$', upper):
-                        cover_label = "COVER_YEAR"
-                elif any(k in upper for k in ["PEMBIMBING", "PENGUJI", "DEKAN", "KETUA PROGRAM STUDI", "TANDA TANGAN"]):
-                    cover_label = "PENGESAHAN_METADATA"
-                elif any(upper == kw for kw in ["ABSTRAK", "ABSTRACT"]):
-                    cover_label = "ABSTRAK_TITLE"
-                elif upper.startswith("KATA KUNCI") or upper.startswith("KEYWORDS"):
-                    cover_label = "ABSTRAK_KEYWORDS"
-                elif is_toc:
-                    cover_label = "TOC_ENTRY"
+            if zone in FRONT_ZONES:
+                datasets["cover_frontmatter"].append(_row(item, COVER_COLUMNS, _cover_label(item, zone, upper, is_toc)))
 
-                d1_cover_frontmatter.append({
-                    "doc_id": item["doc_id"],
-                    "para_id": item["para_id"],
-                    "text": text,
-                    "font_size": item["font_size"],
-                    "is_bold": is_bold,
-                    "align": item["align"],
-                    "doc_pos": doc_pos,
-                    "label": cover_label
-                })
-
-            # -------------------------------------------------------------
-            # 2. DATASET 4 & 5: EKOSISTEM GAMBAR & TABEL
-            # -------------------------------------------------------------
-            if CAPTION_GAMBAR_PATTERN.match(text) and word_count <= 25:
-                d4_figures.append({
-                    "doc_id": item["doc_id"],
-                    "para_id": item["para_id"],
-                    "text": text,
-                    "is_below_drawing": item["is_below_drawing"],
-                    "align": item["align"],
-                    "font_size": item["font_size"],
-                    "label": "CAPTION_GAMBAR"
-                })
-                continue
-            elif item["has_img"]:
-                d4_figures.append({
-                    "doc_id": item["doc_id"],
-                    "para_id": item["para_id"],
-                    "text": "[IMAGE_DRAWING]",
-                    "is_below_drawing": False,
-                    "align": item["align"],
-                    "font_size": item["font_size"],
-                    "label": "FIGURE_IMAGE"
-                })
-            elif SOURCE_PATTERN.match(text) and (item["is_below_drawing"] or (i > 0 and CAPTION_GAMBAR_PATTERN.match(doc_items[i-1]["text"]))):
-                d4_figures.append({
-                    "doc_id": item["doc_id"],
-                    "para_id": item["para_id"],
-                    "text": text,
-                    "is_below_drawing": True,
-                    "align": item["align"],
-                    "font_size": item["font_size"],
-                    "label": "FIGURE_SOURCE"
-                })
+            visual_rows, stop = _figure_table_rows(item, doc_items[i - 1] if i > 0 else None)
+            for name, row in visual_rows:
+                datasets[name].append(row)
+            if stop:
                 continue
 
-            if CAPTION_TABEL_PATTERN.match(text) and word_count <= 25:
-                d5_tables.append({
-                    "doc_id": item["doc_id"],
-                    "para_id": item["para_id"],
-                    "text": text,
-                    "is_above_table": item["is_above_table"],
-                    "align": item["align"],
-                    "font_size": item["font_size"],
-                    "label": "CAPTION_TABEL"
-                })
-                continue
-            elif SOURCE_PATTERN.match(text) and item["is_below_table"]:
-                d5_tables.append({
-                    "doc_id": item["doc_id"],
-                    "para_id": item["para_id"],
-                    "text": text,
-                    "is_above_table": False,
-                    "align": item["align"],
-                    "font_size": item["font_size"],
-                    "label": "TABLE_SOURCE"
-                })
+            formula = _formula_row(item)
+            if formula is not None:
+                datasets["code_formulas"].append(formula)
                 continue
 
-            # -------------------------------------------------------------
-            # 3. DATASET 6: RUMUS / FORMULA & CODE SNIPPET
-            # -------------------------------------------------------------
-            if item["has_math"] or EQUATION_NUM_PATTERN.match(text) or (any(s in text for s in ["∑", "√", "∫", "≈", "≤", "≥", "λ", "μ"]) and word_count <= 15):
-                d6_code_formulas.append({
-                    "doc_id": item["doc_id"],
-                    "para_id": item["para_id"],
-                    "text": text,
-                    "is_monospace": item["is_monospace"],
-                    "font_name": item["font_name"],
-                    "font_size": item["font_size"],
-                    "has_math": item["has_math"],
-                    "label": "EQUATION_FORMULA"
-                })
-                continue
-            elif item["is_monospace"] or (item["has_code_keywords"] and ("{" in text or ";" in text or "=" in text)):
-                d6_code_formulas.append({
-                    "doc_id": item["doc_id"],
-                    "para_id": item["para_id"],
-                    "text": text,
-                    "is_monospace": True,
-                    "font_name": item["font_name"],
-                    "font_size": item["font_size"],
-                    "has_math": False,
-                    "label": "CODE_SNIPPET"
-                })
-                continue
+            is_h1, is_h2, is_h3 = _heading_flags(item, upper, style_lower)
+            heading_label = _heading_or_list_label(item, is_h1, is_h2, is_h3)
+            if heading_label is not None:
+                datasets["headings_vs_lists"].append(_row(item, HEADING_COLUMNS, heading_label))
 
-            # -------------------------------------------------------------
-            # 4. DATASET 3: HEADINGS vs ENUMERATION LISTS (Paling Krusial)
-            # -------------------------------------------------------------
-            is_h1 = (BAB_PATTERN.match(text) and is_bold and word_count <= 10) or ("heading 1" in style_lower and upper in CANONICAL_CHAPTER_NAMES)
-            is_h2 = HEADING2_PATTERN.match(text) and (is_bold or "heading 2" in style_lower) and word_count <= 15 and not text.endswith(".")
-            is_h3 = HEADING3_PATTERN.match(text) and (is_bold or "heading 3" in style_lower) and word_count <= 15 and not text.endswith(".")
+            body_label = _body_label(item, zone, upper, is_h1 or is_h2 or is_h3)
+            if body_label is not None:
+                datasets["body_bibliography"].append(_row(item, BODY_COLUMNS, body_label))
 
-            is_list_num = LIST_NUMBER_PATTERN.match(text) and not is_h2 and not is_h3
-            is_list_alpha = LIST_ALPHA_PATTERN.match(text)
-            is_list_bullet = LIST_BULLET_PATTERN.match(text) or (item["has_num"] and not is_h1 and not is_h2 and not is_h3 and not is_list_num and not is_list_alpha)
+    return datasets
 
-            if is_h1:
-                d3_headings_vs_lists.append({
-                    "doc_id": item["doc_id"], "para_id": item["para_id"], "text": text,
-                    "font_size": item["font_size"], "is_bold": is_bold, "has_num": item["has_num"],
-                    "word_count": word_count, "uppercase_ratio": item["uppercase_ratio"],
-                    "label": "HEADING_1"
-                })
-            elif is_h2:
-                d3_headings_vs_lists.append({
-                    "doc_id": item["doc_id"], "para_id": item["para_id"], "text": text,
-                    "font_size": item["font_size"], "is_bold": is_bold, "has_num": item["has_num"],
-                    "word_count": word_count, "uppercase_ratio": item["uppercase_ratio"],
-                    "label": "HEADING_2"
-                })
-            elif is_h3:
-                d3_headings_vs_lists.append({
-                    "doc_id": item["doc_id"], "para_id": item["para_id"], "text": text,
-                    "font_size": item["font_size"], "is_bold": is_bold, "has_num": item["has_num"],
-                    "word_count": word_count, "uppercase_ratio": item["uppercase_ratio"],
-                    "label": "HEADING_3"
-                })
-            elif is_list_num:
-                d3_headings_vs_lists.append({
-                    "doc_id": item["doc_id"], "para_id": item["para_id"], "text": text,
-                    "font_size": item["font_size"], "is_bold": is_bold, "has_num": item["has_num"],
-                    "word_count": word_count, "uppercase_ratio": item["uppercase_ratio"],
-                    "label": "LIST_NUMBERED"
-                })
-            elif is_list_alpha:
-                d3_headings_vs_lists.append({
-                    "doc_id": item["doc_id"], "para_id": item["para_id"], "text": text,
-                    "font_size": item["font_size"], "is_bold": is_bold, "has_num": item["has_num"],
-                    "word_count": word_count, "uppercase_ratio": item["uppercase_ratio"],
-                    "label": "LIST_ALPHABET"
-                })
-            elif is_list_bullet:
-                d3_headings_vs_lists.append({
-                    "doc_id": item["doc_id"], "para_id": item["para_id"], "text": text,
-                    "font_size": item["font_size"], "is_bold": is_bold, "has_num": item["has_num"],
-                    "word_count": word_count, "uppercase_ratio": item["uppercase_ratio"],
-                    "label": "LIST_BULLET"
-                })
 
-            # -------------------------------------------------------------
-            # 5. DATASET 7: BODY TEXT, KUTIPAN KHUSUS & BIBLIOGRAPHY
-            # -------------------------------------------------------------
-            if current_zone == "BIBLIOGRAPHY":
-                if any(upper == kw for kw in ["DAFTAR PUSTAKA", "DAFTAR REFERENSI"]):
-                    label_7 = "BIBLIOGRAPHY_TITLE"
-                else:
-                    label_7 = "BIBLIOGRAPHY_ENTRY"
-                d7_body_bibliography.append({
-                    "doc_id": item["doc_id"], "para_id": item["para_id"], "text": text,
-                    "first_line_indent": item["first_line_indent"], "left_indent": item["left_indent"],
-                    "line_spacing": item["line_spacing"], "word_count": word_count,
-                    "label": label_7
-                })
-            elif current_zone == "BODY_BAB" and not is_h1 and not is_h2 and not is_h3:
-                # Cek kutipan langsung panjang (> 4 baris / indent kiri >= 1.0 cm)
-                if item["left_indent"] >= 0.8 and char_len > 100:
-                    label_7 = "BLOCK_QUOTE"
-                else:
-                    label_7 = "BODY_PARAGRAPH"
+def write_csv(filename: str, rows: List[Dict[str, Any]]) -> None:
+    if not rows:
+        print(f"[Warning] Dataset {filename} kosong!")
+        return
+    filepath = os.path.join(OUT_DIR, filename)
+    with open(filepath, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f" Berhasil simpan: {filepath} ({len(rows)} baris)")
 
-                d7_body_bibliography.append({
-                    "doc_id": item["doc_id"], "para_id": item["para_id"], "text": text,
-                    "first_line_indent": item["first_line_indent"], "left_indent": item["left_indent"],
-                    "line_spacing": item["line_spacing"], "word_count": word_count,
-                    "label": label_7
-                })
-
-    # Simpan ke masing-masing file CSV
-    out_dir = "data/datasets"
-    os.makedirs(out_dir, exist_ok=True)
-
-    def write_csv(filename: str, dataset: List[Dict[str, Any]]):
-        if not dataset:
-            print(f"[Warning] Dataset {filename} kosong!")
-            return
-        keys = list(dataset[0].keys())
-        filepath = os.path.join(out_dir, filename)
-        with open(filepath, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=keys)
-            writer.writeheader()
-            writer.writerows(dataset)
-        print(f" Berhasil simpan: {filepath} ({len(dataset)} baris)")
-
-    # Ekspor 4 File Modular 1-to-1 sesuai permintaan User
-    asdoku_1_items = [item for doc in all_docs_items for item in doc if item["doc_id"] == "ASDOKU_1_TEMPLATE_UTUH"]
-    asdoku_2_items = [item for doc in all_docs_items for item in doc if item["doc_id"] == "ASDOKU_2_TOC_HEADINGS"]
-    asdoku_3_items = [item for doc in all_docs_items for item in doc if item["doc_id"] == "ASDOKU_3_FIGURES_TOF"]
-    asdoku_4_items = [item for doc in all_docs_items for item in doc if item["doc_id"] == "ASDOKU_4_TABLES_TOT"]
-
-    print("\n=== MENYIMPAN 4 DATASET MODULAR ASDOKU (SESUAI DOKUMEN ASLI USER) ===")
-    write_csv("dataset_asdoku_1_template_keseluruhan.csv", asdoku_1_items)
-    write_csv("dataset_asdoku_2_headings_toc.csv", asdoku_2_items)
-    write_csv("dataset_asdoku_3_figures.csv", asdoku_3_items)
-    write_csv("dataset_asdoku_4_tables.csv", asdoku_4_items)
-
-    print("\n=== MENYIMPAN 7 MASTER DATASETS SPESIALIS (MURNI DARI DATASET ASDOKU) ===")
-    write_csv("dataset_1_cover_frontmatter.csv", d1_cover_frontmatter)
-    write_csv("dataset_2_zoning.csv", d2_zoning)
-    write_csv("dataset_3_headings_vs_lists.csv", d3_headings_vs_lists)
-    write_csv("dataset_4_figures.csv", d4_figures)
-    write_csv("dataset_5_tables.csv", d5_tables)
-    write_csv("dataset_6_code_formulas.csv", d6_code_formulas)
-    write_csv("dataset_7_body_bibliography.csv", d7_body_bibliography)
-    print("========================================================================\n")
 
 def main():
-    test_files = [
-        # HANYA MENGGUNAKAN 4 DOKUMEN GOLDEN DATASET BERSIH BUATAN USER
-        ("Dataset Asdoku/Dataset Asdoku 1.docx", "ASDOKU_1_TEMPLATE_UTUH"),
-        ("Dataset Asdoku/Dataset Asdoku 2.docx", "ASDOKU_2_TOC_HEADINGS"),
-        ("Dataset Asdoku/Dataset Asdoku 3.docx", "ASDOKU_3_FIGURES_TOF"),
-        ("Dataset Asdoku/Dataset Asdoku 4.docx", "ASDOKU_4_TABLES_TOT")
-    ]
-
     all_docs_items = []
-    for filepath, doc_id in test_files:
+    for filepath, doc_id, _ in GOLDEN_DOCUMENTS:
         if os.path.exists(filepath):
             print(f"Ekstraksi elemen dari: {filepath}...")
             items = extract_document_elements(filepath, doc_id)
@@ -572,7 +361,18 @@ def main():
         else:
             print(f"[Skip] File tidak ditemukan: {filepath}")
 
-    classify_and_distribute(all_docs_items)
+    datasets = classify_documents(all_docs_items)
+    os.makedirs(OUT_DIR, exist_ok=True)
+
+    print("\n=== MENYIMPAN 4 DATASET MODULAR ASDOKU (SESUAI DOKUMEN ASLI USER) ===")
+    for _, doc_id, filename in GOLDEN_DOCUMENTS:
+        write_csv(filename, [item for doc in all_docs_items for item in doc if item["doc_id"] == doc_id])
+
+    print("\n=== MENYIMPAN 7 MASTER DATASETS SPESIALIS (MURNI DARI DATASET ASDOKU) ===")
+    for name, filename in DATASET_FILES.items():
+        write_csv(filename, datasets[name])
+    print("========================================================================\n")
+
 
 if __name__ == "__main__":
     main()

@@ -6,26 +6,35 @@ root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
-from app import app
+from app import app  # noqa: E402  (butuh sys.path di atas)
 
-# Middleware penyesuai route untuk Vercel Serverless
+MOUNT_PREFIXES = ("/api/index.py", "/api/index", "/api")
+# Route aplikasi yang memang berawalan /api/ sehingga tidak boleh di-strip
+NATIVE_API_ROUTES = ("/api/format", "/api/download", "/api/active-learning")
+
+
+def rewrite_path(path: str) -> str:
+    """Memetakan path fungsi serverless Vercel ke path route aplikasi."""
+    for prefix in MOUNT_PREFIXES:
+        if path == prefix:
+            return "/"
+        if path.startswith(prefix + "/"):
+            if prefix == "/api" and path.startswith(NATIVE_API_ROUTES):
+                return path
+            return path[len(prefix):]
+    return path
+
+
 class VercelPathMiddleware:
+    """Middleware penyesuai route untuk Vercel Serverless."""
+
     def __init__(self, asgi_app):
         self.asgi_app = asgi_app
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
-            path = scope.get("path", "")
-            for prefix in ["/api/index.py", "/api/index", "/api"]:
-                if path == prefix:
-                    scope["path"] = "/"
-                    break
-                elif path.startswith(prefix + "/"):
-                    # Pengecualian: jangan strip jika route memang berawalan /api/ (seperti /api/format)
-                    if prefix == "/api" and any(path.startswith(r) for r in ["/api/format", "/api/download", "/api/active-learning"]):
-                        break
-                    scope["path"] = path[len(prefix):]
-                    break
+            scope["path"] = rewrite_path(scope.get("path", ""))
         await self.asgi_app(scope, receive, send)
+
 
 app.add_middleware(VercelPathMiddleware)

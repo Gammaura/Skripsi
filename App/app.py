@@ -16,7 +16,6 @@ import os
 import re
 import time
 import shutil
-from typing import Dict, Any, Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, FileResponse
 import uvicorn
@@ -32,9 +31,11 @@ app = FastAPI(
     redirect_slashes=False
 )
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IS_VERCEL = bool(os.environ.get("VERCEL"))
 UPLOAD_DIR = "/tmp/uploads" if IS_VERCEL else "data/uploads"
 OUTPUT_DIR = "/tmp/output" if IS_VERCEL else "output"
+DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -49,103 +50,60 @@ print("[SYSTEM] Seluruh Agen & Self-Improvement Loop Siap Beroperasi!")
 # ============================================================
 # TEMPLATE LOADER & MULTI-PAGE RENDERER
 # ============================================================
-TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "templates")
+TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
+NAV_PAGES = ("home", "alat", "data", "info")
+PEMBAHASAN_PAGES = ("flowchart", "pipeline", "riwayat")
+
 
 def load_template(filename: str) -> str:
-    path = os.path.join(TEMPLATE_DIR, filename)
-    with open(path, "r", encoding="utf-8") as f:
+    with open(os.path.join(TEMPLATE_DIR, filename), "r", encoding="utf-8") as f:
         return f.read()
 
-def render_page(
-    page_id: str,
-    content_filename: str,
-    breadcrumb_links: list = None,
-    pembahasan_label: str = "Pembahasan",
-    scripts: str = ""
-) -> str:
-    is_pembahasan = page_id in ["flowchart", "pipeline", "riwayat"]
+
+def render_page(page_id: str, content_filename: str, pembahasan_label: str = "Pembahasan", scripts: str = "") -> str:
+    replacements = {f"{{{{active_{p}}}}}": "active" if page_id == p else "" for p in NAV_PAGES}
+    replacements["{{active_pembahasan}}"] = "active" if page_id in PEMBAHASAN_PAGES else ""
+    replacements["{{pembahasan_label}}"] = pembahasan_label
+    replacements.update({f"{{{{active_{p}}}}}": "active-item" if page_id == p else "" for p in PEMBAHASAN_PAGES})
+    replacements["{{content}}"] = load_template(content_filename)
+    replacements["{{scripts}}"] = scripts
 
     html = load_template("base.html")
-    content_html = load_template(content_filename)
-    html = html.replace("{{active_home}}", "active" if page_id == "home" else "")
-    html = html.replace("{{active_alat}}", "active" if page_id == "alat" else "")
-    html = html.replace("{{active_data}}", "active" if page_id == "data" else "")
-    html = html.replace("{{active_pembahasan}}", "active" if is_pembahasan else "")
-    html = html.replace("{{active_info}}", "active" if page_id == "info" else "")
-    html = html.replace("{{pembahasan_label}}", pembahasan_label)
-    html = html.replace("{{active_flowchart}}", "active-item" if page_id == "flowchart" else "")
-    html = html.replace("{{active_pipeline}}", "active-item" if page_id == "pipeline" else "")
-    html = html.replace("{{active_riwayat}}", "active-item" if page_id == "riwayat" else "")
-    html = html.replace("{{content}}", content_html)
-    html = html.replace("{{scripts}}", scripts)
+    for placeholder, value in replacements.items():
+        html = html.replace(placeholder, value)
     return html
 
 
 # ============================================================
 # MULTI-PAGE ROUTES (Option 2: True MPA with unique URLs)
 # ============================================================
+# (paths, page_id, template, label menu Pembahasan)
+_PAGES = (
+    (("/",), "home", "home.html", "Pembahasan"),
+    (("/data",), "data", "data.html", "Pembahasan"),
+    (("/flowchart",), "flowchart", "flowchart.html", "Pembahasan: Flowchart"),
+    (("/pipeline", "/agen"), "pipeline", "pipeline.html", "Pembahasan: 3 Agen"),
+    (("/riwayat",), "riwayat", "riwayat.html", "Pembahasan: Kronologi"),
+    (("/info",), "info", "info.html", "Pembahasan"),
+)
 
-@app.get("/", response_class=HTMLResponse)
-async def page_home():
-    return render_page(
-        page_id="home",
-        content_filename="home.html",
-        breadcrumb_links=[("Home", "/")]
-    )
+
+def _register_page(paths, page_id: str, template: str, label: str) -> None:
+    async def page() -> str:
+        return render_page(page_id, template, pembahasan_label=label)
+
+    for path in paths:
+        app.add_api_route(path, page, methods=["GET"], response_class=HTMLResponse, name=f"page_{page_id}")
+
+
+for _page in _PAGES:
+    _register_page(*_page)
+
 
 @app.get("/alat", response_class=HTMLResponse)
 async def page_alat():
     alat_js = f"<script>\n{load_template('alat.js')}\n</script>"
-    return render_page(
-        page_id="alat",
-        content_filename="alat.html",
-        breadcrumb_links=[("Home", "/"), ("Alat", "/alat"), ("Studio Pengujian Multi-Agent (.docx)", None)],
-        scripts=alat_js
-    )
-
-@app.get("/data", response_class=HTMLResponse)
-async def page_data():
-    return render_page(
-        page_id="data",
-        content_filename="data.html",
-        breadcrumb_links=[("Home", "/"), ("Data", "/data"), ("Evaluasi Model & Lompatan Akurasi", None)]
-    )
-
-@app.get("/flowchart", response_class=HTMLResponse)
-async def page_flowchart():
-    return render_page(
-        page_id="flowchart",
-        content_filename="flowchart.html",
-        breadcrumb_links=[("Home", "/"), ("Pembahasan", "/flowchart"), ("Flowchart Sistem & Two-Tier SQA", None)],
-        pembahasan_label="Pembahasan: Flowchart"
-    )
-
-@app.get("/pipeline", response_class=HTMLResponse)
-@app.get("/agen", response_class=HTMLResponse)
-async def page_pipeline():
-    return render_page(
-        page_id="pipeline",
-        content_filename="pipeline.html",
-        breadcrumb_links=[("Home", "/"), ("Pembahasan", "/pipeline"), ("Arsitektur Tiga Agen Cerdas", None)],
-        pembahasan_label="Pembahasan: 3 Agen"
-    )
-
-@app.get("/riwayat", response_class=HTMLResponse)
-async def page_riwayat():
-    return render_page(
-        page_id="riwayat",
-        content_filename="riwayat.html",
-        breadcrumb_links=[("Home", "/"), ("Pembahasan", "/riwayat"), ("Kronologi 5 Babak Riset & Seminar Proposal", None)],
-        pembahasan_label="Pembahasan: Kronologi"
-    )
-
-@app.get("/info", response_class=HTMLResponse)
-async def page_info():
-    return render_page(
-        page_id="info",
-        content_filename="info.html",
-        breadcrumb_links=[("Home", "/"), ("Info", "/info"), ("Glosarium Istilah Akademik", None)]
-    )
+    return render_page("alat", "alat.html", scripts=alat_js)
 
 
 # ============================================================
@@ -229,14 +187,12 @@ async def api_format_document(
 
 @app.get("/api/download/{filename}")
 async def api_download_file(filename: str):
-    file_path = os.path.join(OUTPUT_DIR, filename)
-    if not os.path.exists(file_path):
+    # Cegah path traversal: hanya nama berkas di dalam OUTPUT_DIR yang dilayani.
+    safe_name = os.path.basename(filename)
+    file_path = os.path.join(OUTPUT_DIR, safe_name)
+    if safe_name != filename or not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="Berkas hasil tidak ditemukan.")
-    return FileResponse(
-        file_path,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename=filename
-    )
+    return FileResponse(file_path, media_type=DOCX_MEDIA_TYPE, filename=safe_name)
 
 @app.post("/api/active-learning/feedback")
 async def api_al_feedback(
@@ -252,7 +208,7 @@ async def api_al_feedback(
         )
         return {"status": "success", "message": "Feedback berhasil disimpan ke Active Learning Pool."}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 @app.post("/api/active-learning/retrain")
 async def api_al_retrain():
@@ -261,55 +217,38 @@ async def api_al_retrain():
         inspector.reload_model()
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
-@app.api_route("/logo.png", methods=["GET", "HEAD"])
-@app.api_route("/AsdokuLogo.png", methods=["GET", "HEAD"])
-@app.api_route("/favicon.ico", methods=["GET", "HEAD"])
-async def get_logo():
-    logo_path = os.path.join(os.path.dirname(__file__), "AsdokuLogo.png")
-    if os.path.exists(logo_path):
-        return FileResponse(logo_path, media_type="image/png")
-    raise HTTPException(status_code=404, detail="Logo not found")
 
-@app.api_route("/logo_ueu.png", methods=["GET", "HEAD"])
-async def get_ueu_logo():
-    logo_path = os.path.join(os.path.dirname(__file__), "data", "logo_ueu.png")
-    if os.path.exists(logo_path):
-        return FileResponse(logo_path, media_type="image/png")
-    raise HTTPException(status_code=404, detail="UEU Logo not found")
+# ============================================================
+# STATIC IMAGE ASSETS
+# ============================================================
+# (URL alias, path relatif terhadap BASE_DIR, media type, label 404)
+_STATIC_IMAGES = (
+    (("/logo.png", "/AsdokuLogo.png", "/favicon.ico"), "AsdokuLogo.png", "image/png", "Logo"),
+    (("/logo_ueu.png",), os.path.join("data", "logo_ueu.png"), "image/png", "UEU Logo"),
+    (("/profil.jpeg", "/profil.jpg"), "profil.jpeg", "image/jpeg", "Profil image"),
+    (("/agent1.png", "/Agent 1.png"), "Agent 1.png", "image/png", "Agent 1"),
+    (("/agent2.png", "/Agent 2.png"), "Agent 2.png", "image/png", "Agent 2"),
+    (("/agent3.png", "/Agent 3.png"), "Agent 3.png", "image/png", "Agent 3"),
+)
 
-@app.api_route("/profil.jpeg", methods=["GET", "HEAD"])
-@app.api_route("/profil.jpg", methods=["GET", "HEAD"])
-async def get_profil():
-    profil_path = os.path.join(os.path.dirname(__file__), "profil.jpeg")
-    if os.path.exists(profil_path):
-        return FileResponse(profil_path, media_type="image/jpeg")
-    raise HTTPException(status_code=404, detail="Profil image not found")
 
-@app.api_route("/agent1.png", methods=["GET", "HEAD"])
-@app.api_route("/Agent 1.png", methods=["GET", "HEAD"])
-async def get_agent1():
-    path = os.path.join(os.path.dirname(__file__), "Agent 1.png")
-    if os.path.exists(path):
-        return FileResponse(path, media_type="image/png")
-    raise HTTPException(status_code=404, detail="Agent 1 not found")
+def _register_static_image(urls, relative_path: str, media_type: str, label: str) -> None:
+    path = os.path.join(BASE_DIR, relative_path)
 
-@app.api_route("/agent2.png", methods=["GET", "HEAD"])
-@app.api_route("/Agent 2.png", methods=["GET", "HEAD"])
-async def get_agent2():
-    path = os.path.join(os.path.dirname(__file__), "Agent 2.png")
-    if os.path.exists(path):
-        return FileResponse(path, media_type="image/png")
-    raise HTTPException(status_code=404, detail="Agent 2 not found")
+    async def serve_image():
+        if os.path.exists(path):
+            return FileResponse(path, media_type=media_type)
+        raise HTTPException(status_code=404, detail=f"{label} not found")
 
-@app.api_route("/agent3.png", methods=["GET", "HEAD"])
-@app.api_route("/Agent 3.png", methods=["GET", "HEAD"])
-async def get_agent3():
-    path = os.path.join(os.path.dirname(__file__), "Agent 3.png")
-    if os.path.exists(path):
-        return FileResponse(path, media_type="image/png")
-    raise HTTPException(status_code=404, detail="Agent 3 not found")
+    for url in urls:
+        app.add_api_route(url, serve_image, methods=["GET", "HEAD"], name=f"image_{label}")
+
+
+for _image in _STATIC_IMAGES:
+    _register_static_image(*_image)
+
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=False)
