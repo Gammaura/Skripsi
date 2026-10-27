@@ -7,6 +7,13 @@ from src.ooxml.xml import NS, upsert_val, w_el
 
 SUB_LEVEL_INDENT = "720"  # 1.27 cm
 
+# Urutan anak w:lvl menurut skema OOXML (CT_Lvl). Word membuang nomor level yang anaknya
+# salah urutan (sub-bab tampil tanpa '1.1'), sedangkan LibreOffice masih menampilkannya.
+_LVL_ORDER = {qn(f"w:{tag}"): idx for idx, tag in enumerate((
+    "start", "numFmt", "lvlRestart", "pStyle", "isLgl", "suff", "lvlText",
+    "lvlPicBulletId", "legacy", "lvlJc", "pPr", "rPr",
+))}
+
 _NEW_HEADING_ABSTRACT_NUM = """
 <w:abstractNum {nsdecls} w:abstractNumId="{abs_id}">
     <w:nsid w:val="23A70725"/>
@@ -23,7 +30,6 @@ _NEW_HEADING_ABSTRACT_NUM = """
     <w:lvl w:ilvl="1">
         <w:start w:val="1"/>
         <w:numFmt w:val="decimal"/>
-        <w:lvlRestart w:val="1"/>
         <w:isLgl/>
         <w:lvlText w:val="%1.%2"/>
         <w:lvlJc w:val="left"/>
@@ -33,7 +39,6 @@ _NEW_HEADING_ABSTRACT_NUM = """
     <w:lvl w:ilvl="2">
         <w:start w:val="1"/>
         <w:numFmt w:val="decimal"/>
-        <w:lvlRestart w:val="2"/>
         <w:isLgl/>
         <w:lvlText w:val="%1.%2.%3"/>
         <w:lvlJc w:val="left"/>
@@ -44,7 +49,6 @@ _NEW_HEADING_ABSTRACT_NUM = """
     <w:lvl w:ilvl="3">
         <w:start w:val="1"/>
         <w:numFmt w:val="decimal"/>
-        <w:lvlRestart w:val="3"/>
         <w:isLgl/>
         <w:lvlText w:val="%1.%2.%3.%4"/>
         <w:lvlJc w:val="left"/>
@@ -78,10 +82,16 @@ def _configure_bab_level(lvl0, lvl_text) -> None:
         ind.set(qn("w:hanging"), "0")
 
 
-def _configure_sub_level(lvl, style_id: str, restart: str, text: str) -> None:
-    """Level 1/2 (1.1 / 1.1.1): penomoran legal, restart per level induk, tab stop 1.27 cm."""
+def _configure_sub_level(lvl, style_id: str, text: str) -> None:
+    """Level 1/2 (1.1 / 1.1.1): penomoran legal, tab stop 1.27 cm.
+
+    Tanpa w:lvlRestart: Word sudah me-restart level bawah setiap level induk muncul, dan
+    (terverifikasi di Microsoft Word) lvlRestart membuat nomor sub-bab tidak tampil sama sekali.
+    """
     upsert_val(lvl, "w:pStyle", style_id)
-    upsert_val(lvl, "w:lvlRestart", restart)
+    restart = lvl.find(qn("w:lvlRestart"))
+    if restart is not None:
+        lvl.remove(restart)
     if lvl.find("w:isLgl", NS) is None:
         lvl.append(w_el("isLgl"))
     lvl_text = lvl.find("w:lvlText", NS)
@@ -120,10 +130,10 @@ def ensure_heading_multilevel_list(numbering_elm) -> None:
             continue
 
         _configure_bab_level(lvl0, lvl_text)
-        for ilvl, style_id, restart, text in (("1", "Heading2", "1", "%1.%2"), ("2", "Heading3", "2", "%1.%2.%3")):
+        for ilvl, style_id, text in (("1", "Heading2", "%1.%2"), ("2", "Heading3", "%1.%2.%3")):
             lvl = abs_num.find(f'w:lvl[@w:ilvl="{ilvl}"]', NS)
             if lvl is not None:
-                _configure_sub_level(lvl, style_id, restart, text)
+                _configure_sub_level(lvl, style_id, text)
         _ensure_num_for_abstract(numbering_elm, abs_num.attrib.get(qn("w:abstractNumId")))
         return
 
@@ -146,11 +156,21 @@ def normalize_template_bab_level(numbering_elm, abstract_num_id: str = "2") -> N
         lvl0 = abs_num.find(qn("w:lvl"))
         if lvl0 is None:
             continue
-        upsert_val(lvl0, "w:suff", "none")
+        upsert_val(lvl0, "w:suff", "nothing")
         for tag, value in (("w:lvlJc", "center"), ("w:numFmt", "upperRoman")):
             child = lvl0.find(qn(tag))
             if child is not None:
                 child.set(qn("w:val"), value)
+
+
+def sort_level_children(numbering_elm) -> None:
+    """Mengurutkan ulang anak setiap w:lvl sesuai skema OOXML (urutan stabil)."""
+    for lvl in numbering_elm.iter(qn("w:lvl")):
+        children = list(lvl)
+        ordered = sorted(children, key=lambda child: _LVL_ORDER.get(child.tag, len(_LVL_ORDER)))
+        if ordered != children:
+            for child in ordered:
+                lvl.append(child)
 
 
 def next_num_id(numbering_elm) -> int:

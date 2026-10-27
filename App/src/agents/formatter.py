@@ -36,6 +36,7 @@ from src.ooxml.numbering import (
     ensure_heading_multilevel_list,
     next_num_id,
     normalize_template_bab_level,
+    sort_level_children,
 )
 from src.ooxml.tables import format_table
 from src.ooxml.text import SUBSUB_NUMBER_RE, strip_bab_prefix, strip_subbab_number, to_roman, to_title_case
@@ -122,6 +123,7 @@ class FormattingActuatorAgent:
         numbering = doc_out.part.numbering_part.element
         ensure_heading_multilevel_list(numbering)
         normalize_template_bab_level(numbering)
+        sort_level_children(numbering)
 
         has_frontmatter = self._has_frontmatter(doc_src)
         frontmatter_sect_pr, body_sect_pr = self._capture_section_properties(doc_out)

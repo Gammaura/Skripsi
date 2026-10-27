@@ -8,6 +8,7 @@ import sys
 import time
 
 from docx import Document
+from docx.oxml.ns import qn
 
 # Pastikan root workspace masuk ke sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -15,6 +16,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from src.agents.inspector import InspectorAgent  # noqa: E402
 from src.agents.critic import QualityCriticAgent  # noqa: E402
 from src.agents.formatter import FormattingActuatorAgent  # noqa: E402
+from src.ooxml.numbering import _LVL_ORDER  # noqa: E402
+from src.ooxml.xml import _PPR_ORDER, _PPR_UNKNOWN_POS  # noqa: E402
 
 INPUT_DIR = "data/dokumen_uji"
 OUTPUT_DIR = "output/pengujian"
@@ -27,6 +30,28 @@ TEST_DOCS = [
 ]
 RULE = "=" * 75
 MAX_SQA_ITERATIONS = 3
+
+
+def _ooxml_structure_issues(path: str) -> list:
+    """Kesalahan struktur yang lolos uji SQA tetapi membuat Word membuang penomoran
+    (terverifikasi di Microsoft Word): urutan anak w:pPr / w:lvl dan w:lvlRestart."""
+    doc = Document(path)
+    issues = []
+    for pPr in doc.element.body.iter(qn("w:pPr")):
+        ranks = [_PPR_ORDER.get(child.tag, _PPR_UNKNOWN_POS) for child in pPr]
+        if ranks != sorted(ranks):
+            issues.append("urutan w:pPr tidak sesuai skema")
+            break
+    for lvl in doc.part.numbering_part.element.iter(qn("w:lvl")):
+        ranks = [_LVL_ORDER.get(child.tag, len(_LVL_ORDER)) for child in lvl]
+        if ranks != sorted(ranks):
+            issues.append("urutan w:lvl tidak sesuai skema")
+            break
+    if any(lvl.find(qn("w:lvlRestart")) is not None and lvl.find(qn("w:pStyle")) is not None
+           and lvl.find(qn("w:pStyle")).get(qn("w:val")).startswith("Heading")
+           for lvl in doc.part.numbering_part.element.iter(qn("w:lvl"))):
+        issues.append("w:lvlRestart pada level heading (nomor sub-bab hilang di Word)")
+    return issues
 
 
 def _is_valid_docx(path: str) -> bool:
@@ -57,8 +82,8 @@ def _run_document(inspector, critic, formatter, code: str, fname: str, label: st
         "chapters": len(approved["approved_chapters"]),
         "time": elapsed,
         "sqa": qa["qa_score"],
-        "defects": qa["defects"],
-        "status": "PASS" if _is_valid_docx(res_file) and qa["passed"] else "FAIL",
+        "defects": qa["defects"] + _ooxml_structure_issues(res_file),
+        "status": "PASS" if _is_valid_docx(res_file) and qa["passed"] and not _ooxml_structure_issues(res_file) else "FAIL",
     }
 
 
