@@ -4,7 +4,9 @@ import copy
 import io
 
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
+from docx.oxml import parse_xml
 from docx.oxml.ns import qn
+from lxml import etree
 
 from src.ooxml.xml import DRAWING_NS, MATH_NS, OFFICE_NS, REL_NS, VML_NS
 
@@ -45,6 +47,55 @@ def _remap_hyperlinks(clone, doc_src, doc_out) -> None:
             hyperlink.set(qn("r:id"), str(new_rid))
 
 
+# (tag referensi, relasi part catatan, tag isi catatan)
+_NOTE_KINDS = (
+    ("w:footnoteReference", RT.FOOTNOTES, "w:footnote"),
+    ("w:endnoteReference", RT.ENDNOTES, "w:endnote"),
+)
+# Komentar reviewer tidak ikut dipindahkan (template tidak punya part komentar).
+_COMMENT_TAGS = ("w:commentRangeStart", "w:commentRangeEnd", "w:commentReference")
+
+
+def _related_part(doc, reltype):
+    try:
+        return doc.part.part_related_by(reltype)
+    except KeyError:
+        return None
+
+
+def _copy_notes(clone, doc_src, doc_out) -> None:
+    """Menyalin isi footnote/endnote yang dirujuk paragraf ke part catatan output dengan id baru."""
+    for ref_tag, reltype, note_tag in _NOTE_KINDS:
+        refs = clone.findall(".//" + qn(ref_tag))
+        if not refs:
+            continue
+        src_part, out_part = _related_part(doc_src, reltype), _related_part(doc_out, reltype)
+        src_notes, out_root, next_id = {}, None, 1
+        if src_part is not None and out_part is not None:
+            src_notes = {n.get(qn("w:id")): n for n in parse_xml(src_part.blob).findall(qn(note_tag))}
+            out_root = parse_xml(out_part.blob)
+            next_id = max((int(n.get(qn("w:id"))) for n in out_root.findall(qn(note_tag))), default=0) + 1
+
+        for ref in refs:
+            note = src_notes.get(ref.get(qn("w:id")))
+            if note is None:  # catatan tak ditemukan: buang rujukan agar dokumen tidak rusak
+                ref.getparent().remove(ref)
+                continue
+            new_note = copy.deepcopy(note)
+            new_note.set(qn("w:id"), str(next_id))
+            out_root.append(new_note)
+            ref.set(qn("w:id"), str(next_id))
+            next_id += 1
+        if out_root is not None:
+            out_part._blob = etree.tostring(out_root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+def _remove_comment_marks(clone) -> None:
+    for tag in _COMMENT_TAGS:
+        for mark in clone.findall(".//" + qn(tag)):
+            mark.getparent().remove(mark)
+
+
 def append_to_body(doc_out, element, after=None) -> None:
     """Menyisipkan elemen setelah `after`, atau sebelum sectPr akhir dokumen."""
     if after is not None:
@@ -64,6 +115,8 @@ def clone_paragraph(p_src_elem, doc_src, doc_out, label: str):
     clone.set("approved_label", label)
     _remap_images(clone, doc_src, doc_out, include_vml=True)
     _remap_hyperlinks(clone, doc_src, doc_out)
+    _copy_notes(clone, doc_src, doc_out)
+    _remove_comment_marks(clone)
     append_to_body(doc_out, clone)
     return clone
 
@@ -76,11 +129,11 @@ def clone_table(tbl_src_elem, doc_src, doc_out, after=None):
     return clone
 
 
-def clone_body_element(element, doc_src, doc_out):
-    """Deep-clone elemen body non-paragraf/non-tabel (mis. w:sdt) ke akhir dokumen output."""
+def clone_body_element(element, doc_src, doc_out, after=None):
+    """Deep-clone elemen body non-paragraf/non-tabel (mis. w:sdt) setelah `after` atau ke akhir dokumen."""
     clone = copy.deepcopy(element)
     _remap_images(clone, doc_src, doc_out)
-    append_to_body(doc_out, clone)
+    append_to_body(doc_out, clone, after=after)
     return clone
 
 

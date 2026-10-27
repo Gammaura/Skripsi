@@ -5,6 +5,7 @@ from typing import Dict, Optional
 from docx.oxml import parse_xml
 from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor
+from docx.text.run import Run
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -47,11 +48,19 @@ def remove_child(parent, tag: str) -> None:
 
 
 def replace_child(parent, element) -> None:
-    """Mengganti child pertama yang bertag sama dengan `element`, lalu menambahkannya di akhir."""
+    """Mengganti child pertama yang bertag sama dengan `element`.
+
+    Bila `parent` adalah elemen oxml python-docx (mis. `w:pPr`), elemen disisipkan pada posisi
+    sesuai urutan skema OOXML; selain itu ditambahkan di akhir.
+    """
     existing = parent.find(element.tag)
     if existing is not None:
         parent.remove(existing)
-    parent.append(element)
+    insert = getattr(parent, f"_insert_{element.tag.split('}')[-1]}", None)
+    if insert is not None:
+        insert(element)
+    else:
+        parent.append(element)
 
 
 def upsert_val(parent, tag: str, value: str) -> None:
@@ -73,3 +82,44 @@ def style_run(run, size_pt: float, *, bold: Optional[bool] = None, italic: Optio
         run.font.italic = italic
     if black:
         run.font.color.rgb = BLACK
+
+
+# Urutan anak w:pPr menurut skema OOXML (CT_PPr). Word diam-diam mengabaikan elemen yang
+# salah urutan, mis. numPr setelah spacing membuat nomor sub-bab '1.1' tidak tampil.
+_PPR_ORDER = {qn(f"w:{tag}"): idx for idx, tag in enumerate((
+    "pStyle", "keepNext", "keepLines", "pageBreakBefore", "framePr", "widowControl", "numPr",
+    "suppressLineNumbers", "pBdr", "shd", "tabs", "suppressAutoHyphens", "kinsoku", "wordWrap",
+    "overflowPunct", "topLinePunct", "autoSpaceDE", "autoSpaceDN", "bidi", "adjustRightInd",
+    "snapToGrid", "spacing", "ind", "contextualSpacing", "mirrorIndents", "suppressOverlap", "jc",
+    "textDirection", "textAlignment", "textboxTightWrap", "outlineLvl", "divId", "cnfStyle",
+    "rPr", "sectPr", "pPrChange",
+))}
+_PPR_UNKNOWN_POS = _PPR_ORDER[qn("w:rPr")] - 0.5
+
+
+def sort_ppr_children(root) -> None:
+    """Mengurutkan ulang anak setiap w:pPr di bawah `root` sesuai skema OOXML (urutan stabil)."""
+    for pPr in root.iter(qn("w:pPr")):
+        children = list(pPr)
+        ordered = sorted(children, key=lambda child: _PPR_ORDER.get(child.tag, _PPR_UNKNOWN_POS))
+        if ordered != children:
+            for child in ordered:
+                pPr.append(child)
+
+
+_THEME_FONT_ATTRS = tuple(qn(f"w:{name}") for name in ("asciiTheme", "hAnsiTheme", "cstheme", "eastAsiaTheme"))
+
+
+def normalize_run_fonts(p_elem, size_pt: float, *, black: bool = True) -> None:
+    """Menyeragamkan font & ukuran seluruh run paragraf (termasuk di hyperlink, sitasi Mendeley,
+    dan field) tanpa membuang italic, bold, superscript, maupun footnote."""
+    for r in p_elem.iter(qn("w:r")):
+        run = Run(r, None)
+        style_run(run, size_pt, black=black)
+        r_fonts = r.rPr.find(qn("w:rFonts"))
+        r_fonts.set(qn("w:cs"), FONT_NAME)
+        for attr in _THEME_FONT_ATTRS:  # font tema mengalahkan w:ascii bila dibiarkan
+            r_fonts.attrib.pop(attr, None)
+        is_note_ref = r.find(qn("w:footnoteReference")) is not None or r.find(qn("w:endnoteReference")) is not None
+        if is_note_ref and run.font.superscript is None:
+            run.font.superscript = True

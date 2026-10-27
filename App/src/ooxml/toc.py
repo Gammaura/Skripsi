@@ -159,18 +159,59 @@ class _TocCollector:
         self.caption_entries[label].append((title, page, self._bookmark(p, after_ppr=True), 0))
 
 
+# (label SEQ caption Agent 3, petunjuk nama style/label caption pada instruksi TOC naskah sumber)
+_CAPTION_LIST_TARGETS = (("Tabel", ("TBL", "TABEL", "TABLE")), ("Gambar", ("FIG", "GAMBAR", "FIGURE")))
+
+
+def _caption_list_instruction(instruction: str):
+    """Instruksi pengganti untuk Daftar Tabel/Gambar bawaan, atau None bila bukan daftar caption."""
+    upper = instruction.upper()
+    if not upper.strip().startswith("TOC") or "\\O" in upper or ("\\T" not in upper and "\\C" not in upper):
+        return None
+    for seq_label, hints in _CAPTION_LIST_TARGETS:
+        if any(hint in upper for hint in hints):
+            return f' TOC \\h \\z \\c "{seq_label}" '
+    return None
+
+
+def retarget_caption_list_fields(element) -> int:
+    """Mengarahkan Daftar Tabel/Gambar bawaan naskah (mis. TOC \\t "TblCaption,1") ke caption
+    SEQ Tabel/Gambar buatan Agent 3, agar daftar terisi saat field diperbarui di Word."""
+    changed = 0
+    for instr in element.iter(qn("w:instrText")):
+        replacement = _caption_list_instruction(instr.text or "")
+        if replacement:
+            instr.text = replacement
+            changed += 1
+    for fld in element.iter(qn("w:fldSimple")):
+        replacement = _caption_list_instruction(fld.get(qn("w:instr"), ""))
+        if replacement:
+            fld.set(qn("w:instr"), replacement)
+            changed += 1
+    return changed
+
+
 def _enable_update_fields(doc) -> None:
     settings = doc.settings.element
     if settings.find(qn("w:updateFields")) is None:
         settings.append(w_el("updateFields", {"val": "true"}))
 
 
+def _is_native_heading_toc(sdt) -> bool:
+    """Blok Daftar Isi bawaan Word: galeri 'Table of Contents', field TOC \\o, atau judulnya di dalam blok."""
+    gallery = sdt.find(f"{qn('w:sdtPr')}/{qn('w:docPartObj')}/{qn('w:docPartGallery')}")
+    if gallery is not None and gallery.get(qn("w:val")) == "Table of Contents":
+        return True
+    for instr in sdt.iter(qn("w:instrText")):
+        upper = (instr.text or "").strip().upper()
+        if upper.startswith("TOC") and "\\O" in upper:
+            return True
+    sdt_text = "".join(sdt.itertext()).upper()
+    return any(k in sdt_text for k in _NATIVE_TOC_MARKERS)
+
+
 def _find_native_toc(doc):
-    for sdt in doc._body._element.xpath(".//w:sdt"):
-        sdt_text = "".join(sdt.itertext()).upper()
-        if any(k in sdt_text for k in _NATIVE_TOC_MARKERS):
-            return sdt
-    return None
+    return next((sdt for sdt in doc._body._element.xpath(".//w:sdt") if _is_native_heading_toc(sdt)), None)
 
 
 def _find_first_chapter(doc) -> Optional[Paragraph]:

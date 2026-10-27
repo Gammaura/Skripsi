@@ -19,6 +19,9 @@ from docx.oxml.ns import qn
 
 from src.academic_rules import (
     BAB_LITERAL_RE,
+    BIBLIOGRAPHY_TITLES,
+    CHAPTER_TITLES_BY_NUMBER,
+    FRONTMATTER_TITLES,
     HEADING3_STYLES,
     LABEL_BODY,
     LABEL_CHAPTER,
@@ -30,10 +33,12 @@ from src.academic_rules import (
     MAX_CAPTION_WORDS,
     STRUCTURAL_LABELS,
     SUBCHAPTER_NUMBER_RE,
+    SUBCHAPTER_TITLES,
     SUBHEADING_STYLES,
     SUBSUB_NUMBER_RE,
     caption_kind,
     is_narrative_caption,
+    rule_prior_label,
 )
 
 ROMAWI_MAP = {
@@ -41,44 +46,6 @@ ROMAWI_MAP = {
     "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7,
 }
 
-CANONICAL_CHAPTER_NAMES = {
-    1: ["PENDAHULUAN"],
-    2: ["TINJAUAN PUSTAKA", "LANDASAN TEORI", "DASAR TEORI", "KAJIAN PUSTAKA"],
-    3: ["GAMBARAN UMUM PERUSAHAAN", "GAMBARAN UMUM", "PROFIL PERUSAHAAN", "PELAKSANAAN KERJA PRAKTIK", "URAIAN MATERI", "URAIAN MATERI KERJA PRAKTIK", "METODE", "METODOLOGI", "METODE PENELITIAN", "METODOLOGI PENELITIAN", "PERANCANGAN SISTEM"],
-    4: ["ANALISIS DAN PEMBAHASAN", "ANALISIS HASIL DAN PEMBAHASAN", "HASIL DAN PEMBAHASAN", "ANALISIS DAN PERANCANGAN", "HASIL", "PEMBAHASAN", "IMPLEMENTASI", "HASIL PENELITIAN"],
-    5: ["KESIMPULAN DAN SARAN", "PENUTUP", "KESIMPULAN"],
-}
-
-FRONTMATTER_KEYWORDS = (
-    "ABSTRAK", "ABSTRACT", "KATA PENGANTAR", "PRAKATA",
-    "DAFTAR ISI", "DAFTAR TABEL", "DAFTAR GAMBAR", "DAFTAR SIMBOL",
-    "DAFTAR LAMPIRAN", "DAFTAR PUSTAKA", "DAFTAR REFERENSI",
-    "HALAMAN PERNYATAAN", "HALAMAN PENGESAHAN", "HALAMAN PERSETUJUAN",
-    "HALAMAN PERSETUJUAN PUBLIKASI", "PERSETUJUAN PUBLIKASI",
-    "LEMBAR PENGESAHAN", "LEMBAR PERNYATAAN", "PERNYATAAN KEASLIAN",
-    "UNTUK KEPENTINGAN AKADEMIS", "LAMPIRAN",
-)
-BIBLIOGRAPHY_TITLES = ("DAFTAR PUSTAKA", "DAFTAR REFERENSI", "BIBLIOGRAPHY", "REFERENCES")
-STANDARD_SUBCHAPTERS = (
-    "LATAR BELAKANG", "IDENTIFIKASI MASALAH", "RUMUSAN MASALAH", "BATASAN MASALAH",
-    "TUJUAN PENELITIAN", "TUJUAN MAGANG", "MAKSUD DAN TUJUAN", "MANFAAT PENELITIAN",
-    "MANFAAT MAGANG", "MANFAAT TUGAS AKHIR", "TUJUAN TUGAS AKHIR", "MANFAAT", "TUJUAN",
-    "RUANG LINGKUP", "LINGKUP TUGAS AKHIR", "LINGKUP", "KERANGKA BERPIKIR", "KERANGKA PEMIKIRAN",
-    "SISTEMATIKA PENULISAN", "SISTEMATIKA PENULISAN LAPORAN", "SISTEMATIKA PENULISAN TUGAS AKHIR",
-    "PROFIL PERUSAHAAN", "SEJARAH PERUSAHAAN", "SEJARAH PERUSAHAAN DAN PERKEMBANGANNYA",
-    "VISI DAN MISI", "VISI PERUSAHAAN", "MISI PERUSAHAAN", "STRUKTUR ORGANISASI",
-    "TEORI", "LANDASAN", "KAJIAN",
-    "RENCANA PENELITIAN", "OBYEK PENELITIAN", "OBJEK PENELITIAN", "POPULASI DAN SAMPEL",
-    "DEFINISI OPERASIONAL VARIABEL", "DEFINISI OPERASIONAL", "TEKNIK PENGUMPULAN DATA", "PENGUMPULAN DATA",
-    "ANALISIS KEBUTUHAN", "ANALISIS KEBUTUHAN SISTEM", "DESKRIPSI PROBLEM DAN SOLUSI",
-    "KEBUTUHAN FUNGSIONAL", "KEBUTUHAN NON FUNGSIONAL",
-    "DATA HASIL PENELITIAN", "PEMBAHASAN HASIL PENELITIAN", "ANALISIS DATA", "PERBANDINGAN DENGAN PENELITIAN LAIN",
-    "TAHAPAN IMPLEMENTASI METODE WATERFALL", "PEMODELAN DATABASE",
-    "PEMODELAN BASIS DATA", "DIAGRAM ALUR KERJA", "USE CASE DIAGRAM",
-    "FLOWCHART ALUR PENGGUNA", "ACTIVITY DIAGRAM PENGGUNA", "SEQUENCE DIAGRAM INTERAKSI PENGGUNA",
-    "ANTARMUKA UI/UX", "HASIL PENGUJIAN FUNGSIONAL DAN NON FUNGSIONAL", "PENGUJIAN FUNGSIONAL",
-    "KENDALA TEKNIS DAN SOLUSINYA", "KENDALA TEKNIS", "KESIMPULAN", "SARAN",
-)
 COVER_KEYWORDS = ("NAMA", "NIM", "PROGRAM STUDI", "FAKULTAS", "UNIVERSITAS", "TAHUN", "SKRIPSI", "TUGAS AKHIR")
 SISTEMATIKA_CHAPTER_PREFIXES = ("BAB I", "BAB II", "BAB III", "BAB IV", "BAB V", "BAB 1", "BAB 2", "BAB 3", "BAB 4", "BAB 5")
 CHAPTER_DESCRIPTION_OPENERS = ("bab ini", "dalam bab ini", "pada bab ini")
@@ -89,6 +56,7 @@ FORMULA_OPERATORS = (" = ", " / ", " * ", " + ", " \\approx ", " \\pm ", " \\sum
 METRIC_FORMULA_KEYS = ("Accuracy =", "Precision =", "Recall =", "F1-Score =", "F1 =", "MAE =", "MSE =", "RMSE =", "Loss =")
 SENTENCE_ENDINGS = (".", ":", ";", "!", "?", ",")
 
+REVIEW_QUEUE_SIZE = 20  # jumlah maksimum kueri Active Learning per dokumen
 SISTEMATIKA_WINDOW = 15
 FORMULA_LEGEND_WINDOW = 15
 MAX_CHAPTER_WORDS = 6
@@ -119,7 +87,7 @@ def infer_bab_number(text: str) -> int:
 
     name = re.sub(r"^\d+(\.\d+)*\s*", "", clean)
     if len(name.split()) <= 5:  # cegah sub-bab panjang seperti 'Metode Pengembangan ...'
-        for bab_num, names in CANONICAL_CHAPTER_NAMES.items():
+        for bab_num, names in CHAPTER_TITLES_BY_NUMBER.items():
             if name in names:
                 return bab_num
     return 0
@@ -150,7 +118,7 @@ class _Signals:
 def _is_frontmatter_title(upper: str, upper_np: str, word_count: int) -> bool:
     if word_count > 10 or upper.startswith(("BAB ", "BAB I", "BAB 1")):
         return False
-    return any(upper_np == fm or upper_np.startswith((fm + " ", fm + ":")) for fm in FRONTMATTER_KEYWORDS)
+    return any(upper_np == fm or upper_np.startswith((fm + " ", fm + ":")) for fm in FRONTMATTER_TITLES)
 
 
 def _is_formula(text: str, meta: Dict[str, Any]) -> bool:
@@ -184,7 +152,7 @@ def _extract_signals(item: Dict[str, Any], next_item: Optional[Dict[str, Any]]) 
         is_numbered_list=bool(NUMBERED_LIST_RE.match(stripped)) and not SUBCHAPTER_NUMBER_RE.match(stripped) and not style.startswith("Heading"),
         is_citation=any(regex.match(stripped) for regex in CITATION_RES),
         is_numbered_sub=bool(SUBCHAPTER_NUMBER_RE.match(stripped)),
-        is_standard_sub=word_count <= 10 and upper_np.startswith(STANDARD_SUBCHAPTERS),
+        is_standard_sub=word_count <= 10 and upper_np.startswith(SUBCHAPTER_TITLES),
         followed_by_chapter_description=next_text.startswith(CHAPTER_DESCRIPTION_OPENERS),
     )
 
@@ -206,11 +174,12 @@ class _StructureAuditor:
         self.in_bibliography = False
         self.in_formula_legend = False
         self.formula_legend_count = 0
+        self.awaiting_chapter_title = False
 
-    def audit(self, item: Dict[str, Any], next_item: Optional[Dict[str, Any]]) -> Tuple[str, Optional[str]]:
+    def audit(self, item: Dict[str, Any], next_item: Optional[Dict[str, Any]], pred: str) -> Tuple[str, Optional[str]]:
+        """Label akhir & alasan untuk satu paragraf; `pred` = label masukan (rule prior atau prediksi ML)."""
         s = _extract_signals(item, next_item)
         meta = item["metadata"]
-        pred = item["predicted_label"]
         final = pred
 
         if "SISTEMATIKA PENULISAN" in s.upper and s.word_count <= 8:
@@ -232,7 +201,13 @@ class _StructureAuditor:
         inferred_bab = infer_bab_number(s.text) if (s.word_count <= MAX_SUBCHAPTER_WORDS and not s.is_frontmatter) else 0
         is_real_chapter = self._is_real_chapter(s, inferred_bab)
 
-        decision = self._decide(s, item, pred, inferred_bab, is_real_chapter, is_variable_item)
+        is_title_line = self._is_chapter_title_line(s, inferred_bab)
+        meta["chapter_title_continuation"] = is_title_line
+        if is_title_line:
+            decision = (LABEL_CHAPTER, None if pred == LABEL_CHAPTER else "Teks adalah judul Bab yang ditulis di baris terpisah setelah 'BAB X'.")
+        else:
+            decision = self._decide(s, item, pred, inferred_bab, is_real_chapter, is_variable_item)
+        meta["is_bibliography"] = self.in_bibliography and decision is not None and decision[0] == LABEL_BODY
         if decision is not None:
             final, reason = decision
         else:
@@ -261,9 +236,20 @@ class _StructureAuditor:
             return True
         return False
 
-    def _start_chapter(self, bab_num: int) -> None:
+    def _start_chapter(self, bab_num: int, s: _Signals) -> None:
         self.last_bab = bab_num
         self.active_heading2 = False
+        literal = BAB_LITERAL_RE.match(s.upper_np)
+        self.awaiting_chapter_title = bool(literal) and not s.upper_np[literal.end():].strip(" :.-")
+
+    def _is_chapter_title_line(self, s: _Signals, inferred_bab: int) -> bool:
+        """Baris judul tepat setelah 'BAB X' tanpa judul, mis. 'BAB I' lalu 'PENDAHULUAN'."""
+        if not self.awaiting_chapter_title or not s.stripped:
+            return False
+        self.awaiting_chapter_title = False
+        if s.is_numbered_sub or s.is_frontmatter or BAB_LITERAL_RE.match(s.upper) or s.word_count > MAX_SUBCHAPTER_WORDS:
+            return False
+        return inferred_bab == self.last_bab or (s.stripped.isupper() and not s.stripped.endswith(SENTENCE_ENDINGS))
 
     def _cover_or_body(self, s: _Signals) -> str:
         if not self.has_passed_cover and s.word_count <= 15 and any(k in s.upper for k in COVER_KEYWORDS):
@@ -288,6 +274,7 @@ class _StructureAuditor:
         meta = item["metadata"]
         if s.is_frontmatter:
             self.has_passed_cover = True
+            self.in_bibliography = s.upper_np in BIBLIOGRAPHY_TITLES  # mis. LAMPIRAN mengakhiri daftar pustaka
             return LABEL_FRONTMATTER, (None if pred == LABEL_FRONTMATTER else "Teks adalah judul halaman awal resmi UEU (Frontmatter Title).")
 
         if self.last_bab == 0 and not is_real_chapter:
@@ -324,7 +311,7 @@ class _StructureAuditor:
             return LABEL_BODY, reason
 
         if is_real_chapter:
-            self._start_chapter(inferred_bab)
+            self._start_chapter(inferred_bab, s)
             self.in_sistematika = False
             return LABEL_CHAPTER, (None if pred == LABEL_CHAPTER else f"Teks divalidasi sebagai Judul Bab {inferred_bab} Kanonikal UEU.")
 
@@ -359,7 +346,7 @@ class _StructureAuditor:
             return LABEL_SUBCHAPTER, f"Teks '{s.stripped}' berada di bawah Bab {inferred_bab} aktif (Sub-Bab)."
         if inferred_bab > self.last_bab + 1 and not BAB_LITERAL_RE.match(s.upper):
             return LABEL_SUBCHAPTER, f"Teks '{s.stripped}' bukan Bab baru (lompatan nomor tanpa kata 'BAB')."
-        self._start_chapter(inferred_bab)
+        self._start_chapter(inferred_bab, s)
         return LABEL_CHAPTER, (None if pred == LABEL_CHAPTER else f"Teks dikenali sebagai Judul Bab {inferred_bab} Kanonikal UEU.")
 
     @staticmethod
@@ -397,7 +384,7 @@ class _StructureAuditor:
         is_explicit_heading2 = bool(
             meta.get("style") in ("Heading 2", "Heading2")
             or re.match(r"^\d+\.\d+\s+[A-Za-z]", s.stripped)
-            or s.upper_np.startswith(STANDARD_SUBCHAPTERS)
+            or s.upper_np.startswith(SUBCHAPTER_TITLES)
         )
         if is_explicit_subsub:
             meta["is_subsub"] = True
@@ -411,7 +398,9 @@ class _StructureAuditor:
 class QualityCriticAgent:
     """Agent 2: Quality Critic & Coordinator Agent."""
 
-    def __init__(self):
+    def __init__(self, active_learning=None):
+        """`active_learning`: ActiveLearningManager penampung koreksi; default dibuat saat pertama dipakai."""
+        self._active_learning = active_learning
         print("[Agent 2 - Quality Critic] Diinisialisasi dengan Aturan Integritas Akademik Cerdas UEU.")
 
     # ------------------------------------------------------------------
@@ -422,26 +411,35 @@ class QualityCriticAgent:
         print("\n[Agent 2 - Quality Critic] Mengaudit draf blueprint dari Agent 1...")
         paragraphs = inspection_report["paragraphs"]
         auditor = _StructureAuditor()
-        refined, corrections = [], []
+        refined, corrections, review_candidates = [], [], []
 
         for idx, item in enumerate(paragraphs):
             next_item = paragraphs[idx + 1] if idx + 1 < len(paragraphs) else None
-            pred = item["predicted_label"]
-            final, reason = auditor.audit(item, next_item)
-            if final != pred and item["text"].strip():
+            ml_pred = item["predicted_label"]
+            # Tahap 1: rule prior per paragraf; Tahap 2: rantai audit konteks dokumen
+            prior = rule_prior_label(item["raw_features"])
+            final, reason = auditor.audit(item, next_item, prior[0] if prior else ml_pred)
+            if reason is None and prior and prior[0] == final:
+                reason = f"Aturan baku UEU: {prior[1]}"
+            if final != ml_pred and item["text"].strip():
                 corrections.append({
                     "para_id": item["para_id"],
                     "text": item["text"][:50],
-                    "original_pred": pred,
+                    "original_pred": ml_pred,
                     "corrected_label": final,
-                    "reason": reason or f"Penyelarasan label dari {pred} ke {final} sesuai kaidah naskah akademik UEU.",
+                    "reason": reason or f"Penyelarasan label dari {ml_pred} ke {final} sesuai kaidah naskah akademik UEU.",
                 })
-            refined.append({**item, "approved_label": final, "was_corrected": final != pred})
+            refined.append({**item, "approved_label": final, "was_corrected": final != ml_pred})
+            if item.get("is_ambiguous") and prior is None and reason is None and final == ml_pred and item["text"].strip():
+                review_candidates.append(item)
 
         final_summary: Dict[str, int] = {}
         for p in refined:
             final_summary[p["approved_label"]] = final_summary.get(p["approved_label"], 0) + 1
-        approved_chapters = [f"P[{p['para_id']}] {p['text'][:40]}" for p in refined if p["approved_label"] == LABEL_CHAPTER]
+        approved_chapters = [
+            f"P[{p['para_id']}] {p['text'][:40]}" for p in refined
+            if p["approved_label"] == LABEL_CHAPTER and not p["metadata"].get("chapter_title_continuation")
+        ]
         new_feedback_count = self._record_active_learning_feedback(inspection_report, refined)
 
         print(f"[Agent 2 - Quality Critic] Audit Selesai! Mengoreksi {len(corrections)} anomali.")
@@ -455,49 +453,82 @@ class QualityCriticAgent:
             "corrections_log": corrections,
             "final_summary": final_summary,
             "approved_chapters": approved_chapters,
+            "review_queue": self._build_review_queue(review_candidates),
             "paragraphs": refined,
             "status": "APPROVED BY QUALITY CRITIC AGENT",
         }
 
     @staticmethod
-    def _record_active_learning_feedback(inspection_report: Dict[str, Any], refined: List[Dict[str, Any]]) -> int:
-        from src.active_learning import ActiveLearningManager  # impor lokal: hindari siklus impor
+    def _build_review_queue(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Kueri Active Learning (uncertainty sampling, least-confidence): paragraf yang membuat ML ragu
+        DAN tidak dapat dipastikan oleh aturan Agent 2, sehingga perlu dikonfirmasi manusia."""
+        queue = []
+        for item in sorted(candidates, key=lambda it: it["confidence"])[:REVIEW_QUEUE_SIZE]:
+            ranked = sorted(item["probabilities"].items(), key=lambda kv: kv[1], reverse=True)
+            queue.append({
+                "para_id": item["para_id"],
+                "text": item["text"],
+                "predicted_label": item["predicted_label"],
+                "confidence": item["confidence"],
+                "alternatives": ranked[:3],
+                "raw_features": item["raw_features"],
+            })
+        return queue
 
-        corrected = [p for p in refined if p["was_corrected"]]
+    def _record_active_learning_feedback(self, inspection_report: Dict[str, Any], refined: List[Dict[str, Any]]) -> int:
+        if self._active_learning is None:
+            from src.active_learning import ActiveLearningManager  # impor lokal: hindari siklus impor
+            self._active_learning = ActiveLearningManager()
+
+        corrected = [p for p in refined if p["was_corrected"] and p["text"].strip()]
         try:
-            return ActiveLearningManager().record_corrections(inspection_report.get("source_doc", "dokumen"), corrected)
+            return self._active_learning.record_corrections(inspection_report.get("source_doc", "dokumen"), corrected)
         except (OSError, ValueError, KeyError) as exc:
             print(f"[Agent 2 - Quality Critic] Peringatan: Tidak dapat mencatat feedback Active Learning: {exc}")
             return 0
 
     def coordinate_tier1_blueprint_loop(self, inspection_report: Dict[str, Any], inspector_agent=None, max_iterations: int = 3) -> Dict[str, Any]:
         """
-        [SQA TIER 1: Agent 1 <-> Agent 2] Audit blueprint; jika ada koreksi, kirim kembali ke
-        Agent 1 untuk re-inspeksi hingga konsisten atau batas iterasi tercapai.
+        [SQA TIER 1: Agent 1 <-> Agent 2] Audit blueprint; jika ada koreksi, Agent 1 menerapkannya lalu
+        blueprint diaudit ulang. Iterasi ulang adalah uji konsistensi (konvergen bila audit tidak lagi
+        menghasilkan koreksi), bukan prediksi ulang oleh model.
         """
         current_report = inspection_report
         history = []
+        all_corrections: List[Dict[str, Any]] = []
+        new_feedback_samples = 0
         approved = None
         for it in range(1, max_iterations + 1):
             print(f"\n[SQA Tier 1 Gatekeeper - Iterasi {it}/{max_iterations}] Mengaudit blueprint struktur dari Agent 1...")
             approved = self.evaluate_and_refine(current_report)
             corrections = approved["corrections_log"]
+            all_corrections.extend({**c, "iteration": it} for c in corrections)
+            new_feedback_samples += approved["new_feedback_samples"]
             should_retry = bool(corrections) and inspector_agent is not None and it < max_iterations
             history.append({
                 "iteration": it,
                 "corrections_count": len(corrections),
                 "approved_chapters": approved["approved_chapters"],
-                "status": "FEEDBACK_SENT_TO_AGENT_1" if should_retry else "APPROVED",
+                "status": "FEEDBACK_SENT_TO_AGENT_1" if should_retry else ("CONVERGED" if not corrections else "CORRECTED_BY_AGENT_2"),
             })
             if not should_retry:
-                print(f"[SQA Tier 1 Gatekeeper] Blueprint STRUKTUR 100% LOLOS AUDIT (Iterasi {it})! Siap diserahkan ke Agent 3 (Formatter).")
                 break
-            print(f"[SQA Tier 1 Gatekeeper] Ditemukan {len(corrections)} anomali pada draf Agent 1. Mengembalikan feedback ke Agent 1 untuk re-inspeksi...")
+            print(f"[SQA Tier 1 Gatekeeper] Ditemukan {len(corrections)} anomali pada draf Agent 1. Mengembalikan feedback ke Agent 1 untuk diterapkan & diuji ulang...")
             current_report = inspector_agent.re_inspect_with_feedback(current_report, corrections)
 
+        converged = history[-1]["corrections_count"] == 0
+        if converged:
+            print(f"[SQA Tier 1 Gatekeeper] Blueprint konsisten (iterasi {len(history)}, total {len(all_corrections)} koreksi). Diserahkan ke Agent 3.")
+        else:
+            print(f"[SQA Tier 1 Gatekeeper] Blueprint belum konvergen setelah {len(history)} iterasi; "
+                  f"{history[-1]['corrections_count']} koreksi terakhir diterapkan langsung oleh Agent 2.")
+        # Laporan memuat seluruh koreksi lintas iterasi, bukan hanya iterasi terakhir (yang biasanya 0).
+        approved["corrections_log"] = all_corrections
+        approved["total_corrections"] = len(all_corrections)
+        approved["new_feedback_samples"] = new_feedback_samples
         approved["sqa_tier1_history"] = history
         approved["sqa_tier1_iterations"] = len(history)
-        approved["sqa_tier1_status"] = "100% APPROVED BY SQA AUDITOR"
+        approved["sqa_tier1_status"] = "CONVERGED" if converged else "MAX_ITERATIONS_REACHED"
         return approved
 
     # ------------------------------------------------------------------
@@ -565,7 +596,11 @@ class QualityCriticAgent:
                 "status": "PASS" if qa_result["passed"] else "FAIL_RETRY",
             })
             if qa_result["passed"]:
-                print(f"[SQA Tier 2 Quality Gate] Dokumen LOLOS 100% Acceptance Criteria pada iterasi ke-{it}!")
+                print(f"[SQA Tier 2 Quality Gate] Dokumen lolos seluruh {qa_result['total_checks']} kriteria pada iterasi ke-{it}.")
+                break
+            if len(history) > 1 and history[-2]["defects"] == qa_result["defects"]:
+                print(f"[SQA Tier 2 Quality Gate] Cacat tidak berubah dari iterasi sebelumnya; Agent 3 tidak dapat memperbaikinya otomatis. "
+                      f"{len(qa_result['defects'])} cacat dilaporkan ke pengguna.")
                 break
             print(f"[SQA Tier 2 Quality Gate] Ditemukan {len(qa_result['defects'])} cacat pada iterasi ke-{it}. Mengembalikan ke Agent 3...")
 
@@ -631,7 +666,7 @@ def _check_heading1(doc) -> List[str]:
             continue
         text = p.text.strip()
         pPr = p._p.find(qn("w:pPr"))
-        is_frontmatter_title = any(k in text.upper() for k in FRONTMATTER_H1_MARKERS)
+        is_frontmatter_title = any(k in text.upper() for k in FRONTMATTER_H1_MARKERS) or text.upper().startswith(FRONTMATTER_TITLES)
         if not H1_BAB_TEXT_RE.search(text) and not is_frontmatter_title and not _has_level0_num_pr(pPr):
             defects.append(f"Heading 1 '{text[:25]}' kehilangan kata 'BAB' (Diharuskan 'BAB X\\nJUDUL' atau numPr Word)")
         if pPr is None:
@@ -671,7 +706,10 @@ def _check_heading2(doc) -> List[str]:
 
 
 def _check_body_paragraphs(doc) -> List[str]:
-    """Berhenti pada cacat pertama: cukup satu contoh untuk menandai kriteria gagal."""
+    """Berhenti pada cacat pertama: cukup satu contoh untuk menandai kriteria gagal.
+
+    Butir daftar (numPr), paragraf gambar, dan entri daftar pustaka (hanging indent) punya aturan spasi sendiri.
+    """
     in_body = False
     for p in doc.paragraphs:
         if p.style and "Heading 1" in p.style.name and any(k in p.text.upper() for k in ("BAB", "PENDAHULUAN")):
@@ -679,7 +717,10 @@ def _check_body_paragraphs(doc) -> List[str]:
         if not (in_body and p.style and p.style.name == "Normal" and len(p.text.split()) > 15):
             continue
         pPr = p._p.find(qn("w:pPr"))
-        if pPr is None:
+        if pPr is None or pPr.find(qn("w:numPr")) is not None or p._p.find(".//" + qn("w:drawing")) is not None:
+            continue
+        ind = pPr.find(qn("w:ind"))
+        if ind is not None and qn("w:hanging") in ind.attrib:
             continue
         spacing = pPr.find(qn("w:spacing"))
         if spacing is not None:
@@ -689,7 +730,6 @@ def _check_body_paragraphs(doc) -> List[str]:
                 return [f"Paragraf isi memiliki spasi baris terlalu besar ({line} dxa)"]
             if abs(after - 120) > 40:
                 return [f"Paragraf isi spasi bawah tidak 6 pt ({after} dxa)"]
-        ind = pPr.find(qn("w:ind"))
         if ind is not None and int(ind.attrib.get(qn("w:firstLine"), "0")) == 0:
             return ["Paragraf isi tidak memiliki indentasi alinea baris pertama (firstLine=0)"]
     return []

@@ -855,3 +855,31 @@ Berdasarkan hasil uji coba pengguna (`rapi_1791911204_...docx`), ditemukan anoma
 * Server daemon FastAPI `app.py` telah diperbarui dan aktif melayani `POST /api/format`.
 
 
+
+---
+
+### Sesi 28: Audit Kritis Kolaborasi Multi-Agent, Formatter Zero-Loss, Agent 1 ML Murni, & Active Learning dengan Uji Non-Regresi
+**Tanggal:** 27 Oktober 2026  
+**Status:** Selesai (5/5 dokumen uji lolos 8/8 kriteria SQA; label akhir identik sebelum & sesudah refaktor aturan)
+
+#### 1. Temuan Audit (Masalah yang Ditemukan):
+1. **Koreksi Tier 1 hilang dari laporan:** hasil iterasi terakhir (yang selalu 0 koreksi) menimpa log koreksi, sehingga UI selalu menampilkan 0 koreksi dan retraining otomatis tidak pernah terpicu.
+2. **Loop Tier 2 tanpa umpan balik:** Agent 3 dipanggil ulang dengan masukan yang sama, sehingga iterasi 2 dan 3 menghasilkan dokumen identik.
+3. **Aturan Agent 2 vs Agent 3 tidak sinkron:** spasi butir daftar dan judul "UNTUK KEPENTINGAN AKADEMIS" membuat P1/P2/P4/P5 gagal SQA (75–87,5%).
+4. **Agent 3 menghapus isi naskah:** paragraf ditulis ulang dari teks polos, sehingga sitasi **Mendeley Cite** (`w:sdt`), catatan kaki, superscript, cetak miring, dan hyperlink hilang. Daftar Isi native naskah juga tersalin ke akhir dokumen.
+5. **Format dua baris `BAB I` + `PENDAHULUAN`:** judul bab diturunkan menjadi sub-bab 1.1.
+6. **Peran agen tumpang tindih:** Agent 1 memuat aturan buatan, sehingga kinerja ML tidak dapat diukur terpisah dan daftar kata kunci terduplikasi di dua agen.
+
+#### 2. Tindakan Rekayasa:
+1. **Agent 3 Salin-lalu-Normalisasi (`formatter.py`, `src/ooxml/`):** paragraf disalin utuh, lalu hanya properti paragraf serta font/ukuran run yang diseragamkan. Isi catatan kaki dipindahkan ke `footnotes.xml` output dengan id baru. Entri daftar pustaka diberi *hanging indent* APA. Blok `w:sdt` disalin di posisi aslinya.
+2. **Agent 1 ML Murni (`inspector.py`):** seluruh aturan dipindah ke Agent 2 sebagai *rule prior* (`academic_rules.rule_prior_label`); kosakata baku disatukan di `academic_rules.py`. Koreksi kini dihitung terhadap tebakan ML murni.
+3. **Agent 2 (`critic.py`):** akumulasi koreksi lintas iterasi, status `CONVERGED`/`MAX_ITERATIONS_REACHED`, penghentian loop Tier 2 bila cacat tidak berubah, penggabungan judul bab dua baris, dan antrean kueri Active Learning (*least-confidence*, maks. 20).
+4. **Active Learning (`active_learning.py`, `app.py`, UI `alat`):** kolom `label_source` (`AGENT2_RULE` vs `MANUAL`), kartu konfirmasi paragraf ambigu, retraining tiap 5 label manual, uji non-regresi, dan kunci agar retraining tidak berjalan bersamaan.
+
+#### 3. Hasil Validasi & Pengujian:
+* **SQA Tier 2:** P1–P5 seluruhnya 100% (8/8), sebelumnya hanya P3.
+* **Regresi label:** label akhir kelima dokumen identik 100% sebelum dan sesudah pemindahan aturan dari Agent 1 ke Agent 2.
+* **Kesesuaian ML murni dengan label akhir:** P1 92,5%, P2 63,5%, P3 75,7%, P4 71,3%, P5 85,0%, lebih rendah daripada akurasi LODO 94,39%. Ini menunjukkan celah generalisasi yang ditutup oleh Agent 2.
+* **Zero-loss:** pada uji sitasi Mendeley Cite, catatan kaki, superscript, dan italic, seluruhnya utuh. Jumlah kata yang hilang di P4 turun dari 979 menjadi 98 (sisanya nomor bab/sub-bab yang memang diganti penomoran otomatis).
+* **Uji non-regresi Active Learning** (split uji basis, n = 108): basis 0,9202; + 5 label manual **0,9306 (diterima)**; + 602 *weak label* Agent 2 **0,6939 (ditolak)**. Kesimpulan: *weak label* hanya dicatat dan tidak dipakai melatih.
+* **Verifikasi model produksi:** prediksi identik 100% dengan model yang dilatih ulang dari `dataset_skripsi.csv`, sehingga model tidak terkontaminasi *weak label*.

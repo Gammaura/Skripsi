@@ -1,106 +1,31 @@
 """
-AGENT 1: INSPECTOR (Detection & Classification Agent).
+AGENT 1: INSPECTOR (Detection & Classification Agent) - murni Machine Learning.
 
 Tugas:
 1. Membaca naskah Word (.docx) secara non-destruktif.
-2. Mengekstraksi fitur teks NLP dan metadata tipografi OpenXML per paragraf.
-3. Melakukan inferensi probabilistik dengan model Machine Learning terlatih.
-4. Menyelaraskan prediksi dengan aturan baku UEU dan menandai paragraf ambigu
-   (confidence < 0.70) untuk diaudit Agent 2 (Critic).
+2. Mengekstraksi fitur teks NLP (TF-IDF) dan metadata tipografi OpenXML per paragraf.
+3. Melakukan inferensi probabilistik dengan model Machine Learning terlatih, tanpa aturan buatan,
+   sehingga kinerja ML dapat diukur terpisah dari validasi aturan Agent 2.
+4. Menandai paragraf ambigu (confidence < 0.70) sebagai kandidat kueri Active Learning
+   (uncertainty sampling) untuk dikonfirmasi pengguna.
 """
 
 import os
-import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 import joblib
 import numpy as np
 import pandas as pd
 from docx import Document
 
-from src.academic_rules import (
-    LABEL_BODY,
-    LABEL_CHAPTER,
-    LABEL_COVER,
-    LABEL_FIGURE_CAPTION,
-    LABEL_FRONTMATTER,
-    LABEL_OTHER,
-    LABEL_SUBCHAPTER,
-    LABEL_TABLE_CAPTION,
-    MAX_CAPTION_WORDS,
-    SUBHEADING_STYLES,
-    SUBSUB_NUMBER_RE,
-    caption_kind,
-    is_narrative_caption,
-)
+from src.academic_rules import LABEL_CHAPTER, LABEL_FIGURE_CAPTION, LABEL_SUBCHAPTER, LABEL_TABLE_CAPTION, SUBSUB_NUMBER_RE
 from src.paragraph_features import extract_paragraph_features
 
 DEFAULT_MODEL_PATH = "models/baseline_model.joblib"
 DEFAULT_PIPELINE_PATH = "models/feature_pipeline.joblib"
 AMBIGUITY_THRESHOLD = 0.70
-RULE_CONFIDENCE = 0.99
-NARRATIVE_CAPTION_CONFIDENCE = 0.95
 SQA_CONFIDENCE = 0.999
 PREVIEW_CHARS = 40
-COVER_ZONE_LIMIT = 0.15
-
-COVER_KEYWORDS = (
-    "TUGAS AKHIR", "SKRIPSI", "LAPORAN KERJA PRAKTIK", "PROGRAM STUDI", "FAKULTAS",
-    "UNIVERSITAS ESA UNGGUL", "TAHUN 202", "DIAJUKAN SEBAGAI", "NAMA :", "NIM :",
-)
-FORM_FIELD_KEYWORDS = (
-    "NAMA :", "NIM :", "NAME :", "STUDENT ID", "STUDY PROGRAM", "TANDA TANGAN", "TANGGAL :",
-    "DIBUAT DI", "DITETAPKAN DI", "TIM PENGUJI", "PENGUJI I", "PENGUJI II", "TAHUN 202",
-    "KATA KUNCI", "KEYWORDS",
-)
-FRONTMATTER_TITLES = (
-    "ABSTRAK", "ABSTRACT", "KATA PENGANTAR", "PRAKATA", "DAFTAR ISI", "DAFTAR TABEL",
-    "DAFTAR GAMBAR", "DAFTAR SIMBOL", "DAFTAR LAMPIRAN", "HALAMAN PERNYATAAN",
-    "HALAMAN PENGESAHAN", "HALAMAN PERSETUJUAN", "HALAMAN PERSETUJUAN PUBLIKASI",
-    "PERSETUJUAN PUBLIKASI", "UNTUK KEPENTINGAN AKADEMIS", "DAFTAR REFERENSI", "DAFTAR PUSTAKA",
-)
-CANONICAL_CHAPTER_TITLES = (
-    "PENDAHULUAN", "TINJAUAN PUSTAKA", "LANDASAN TEORI", "METODE", "METODOLOGI",
-    "METODE PENELITIAN", "HASIL DAN PEMBAHASAN", "KESIMPULAN DAN SARAN",
-)
-STANDARD_SUBCHAPTER_TITLES = (
-    "LATAR BELAKANG", "IDENTIFIKASI MASALAH", "RUMUSAN MASALAH", "BATASAN MASALAH",
-    "TUJUAN", "MANFAAT", "RUANG LINGKUP", "LINGKUP", "KERANGKA BERPIKIR", "SISTEMATIKA PENULISAN",
-    "PROFIL PERUSAHAAN", "VISI DAN MISI", "STRUKTUR ORGANISASI", "TEORI", "LANDASAN",
-    "RENCANA PENELITIAN", "OBYEK PENELITIAN", "POPULASI DAN SAMPEL", "TEKNIK PENGUMPULAN DATA",
-    "ANALISIS KEBUTUHAN", "KEBUTUHAN FUNGSIONAL", "DATA HASIL PENELITIAN", "PEMBAHASAN HASIL PENELITIAN",
-    "ANALISIS DATA", "PERBANDINGAN DENGAN PENELITIAN LAIN", "KESIMPULAN", "SARAN",
-)
-
-
-def _rule_based_label(features: Dict[str, Any]) -> Optional[Tuple[str, float]]:
-    """Label & confidence dari aturan baku UEU, atau None jika prediksi ML dipertahankan."""
-    text = features["text"].strip()
-    upper = text.upper().rstrip(".:;")
-    word_count = len(upper.split())
-
-    if features["char_len"] == 0:
-        return (LABEL_BODY if features["has_img"] else LABEL_OTHER), RULE_CONFIDENCE
-    if features["doc_pos"] < COVER_ZONE_LIMIT and any(k in upper for k in COVER_KEYWORDS):
-        return LABEL_COVER, RULE_CONFIDENCE
-    if any(k in upper for k in FORM_FIELD_KEYWORDS):
-        return LABEL_BODY, RULE_CONFIDENCE
-    if word_count <= 10 and upper.startswith(FRONTMATTER_TITLES):
-        return LABEL_FRONTMATTER, RULE_CONFIDENCE
-    if word_count <= 5 and (upper in CANONICAL_CHAPTER_TITLES or upper.startswith("BAB ")):
-        return LABEL_CHAPTER, RULE_CONFIDENCE
-
-    caption = caption_kind(text)
-    if caption and word_count <= MAX_CAPTION_WORDS:
-        if is_narrative_caption(text, caption):
-            return LABEL_BODY, NARRATIVE_CAPTION_CONFIDENCE
-        return caption, RULE_CONFIDENCE
-
-    if word_count <= 8 and not text.endswith(".") and upper.startswith(STANDARD_SUBCHAPTER_TITLES):
-        return LABEL_SUBCHAPTER, RULE_CONFIDENCE
-    if features["style"] in SUBHEADING_STYLES or re.match(r"^\d+\.\d+(\.\d+)*\b", text):
-        return LABEL_SUBCHAPTER, RULE_CONFIDENCE
-    return None
 
 
 def summarize_blueprint(paragraphs: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -133,9 +58,10 @@ class InspectorAgent:
         print("[Agent 1 - Inspector] Model & Feature Pipeline berhasil dimuat.")
 
     def _load_artifacts(self) -> None:
-        self.model = joblib.load(self.model_path)
-        self.pipeline = joblib.load(self.pipeline_path)
-        self.classes = list(self.model.classes_)
+        # Dimuat ke variabel lokal lalu ditukar sekaligus: request yang sedang berjalan saat
+        # hot-reload tetap memakai pasangan model & pipeline yang konsisten.
+        model, pipeline = joblib.load(self.model_path), joblib.load(self.pipeline_path)
+        self._artifacts = (model, pipeline, list(model.classes_))
 
     def reload_model(self) -> None:
         """Hot-reload model & pipeline setelah retraining Active Learning."""
@@ -149,11 +75,10 @@ class InspectorAgent:
         total = len(paragraphs)
         features = [extract_paragraph_features(p, idx, total) for idx, p in enumerate(paragraphs)]
 
-        X = self.pipeline.transform(pd.DataFrame(features))
-        probas = self.model.predict_proba(X)
-        predictions = self.model.predict(X)
+        model, pipeline, classes = self._artifacts
+        probas = model.predict_proba(pipeline.transform(pd.DataFrame(features)))
 
-        blueprint = [self._build_record(item, predictions[i], probas[i]) for i, item in enumerate(features)]
+        blueprint = [self._build_record(item, probas[i], classes) for i, item in enumerate(features)]
         report = {"source_doc": docx_path, "total_paragraphs": total, **summarize_blueprint(blueprint), "paragraphs": blueprint}
         print(
             f"[Agent 1 - Inspector] Selesai! Terdeteksi {report['detected_chapters_count']} Bab, "
@@ -161,23 +86,18 @@ class InspectorAgent:
         )
         return report
 
-    def _build_record(self, item: Dict[str, Any], ml_label: str, proba: np.ndarray) -> Dict[str, Any]:
-        rule = _rule_based_label(item)
-        if rule:
-            label, confidence = rule
-            is_ambiguous = False
-        else:
-            label, confidence = ml_label, float(np.max(proba))
-            is_ambiguous = confidence < AMBIGUITY_THRESHOLD
-
+    @staticmethod
+    def _build_record(item: Dict[str, Any], proba: np.ndarray, classes: List[str]) -> Dict[str, Any]:
+        best = int(np.argmax(proba))
+        confidence = float(proba[best])
         text = item["text"].strip()
         return {
             "para_id": item["para_id"],
             "text": item["text"],
-            "predicted_label": label,
+            "predicted_label": classes[best],
             "confidence": round(confidence, 4),
-            "is_ambiguous": is_ambiguous,
-            "probabilities": {cls: round(float(proba[i]), 4) for i, cls in enumerate(self.classes)},
+            "is_ambiguous": confidence < AMBIGUITY_THRESHOLD,
+            "probabilities": {cls: round(float(proba[i]), 4) for i, cls in enumerate(classes)},
             "raw_features": item,
             "metadata": {
                 "style": item["style"],
@@ -194,10 +114,12 @@ class InspectorAgent:
 
     def re_inspect_with_feedback(self, current_report: Dict[str, Any], feedback_directives: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        [SQA TIER 1 FEEDBACK LOOP] Menerapkan koreksi Agent 2 ke blueprint dan
-        menghitung ulang ringkasannya.
+        [SQA TIER 1 FEEDBACK LOOP] Menerapkan koreksi Agent 2 ke blueprint dan menghitung ulang ringkasannya.
+
+        Model tidak dijalankan ulang: label terkoreksi diadopsi apa adanya. Iterasi audit berikutnya
+        berfungsi sebagai uji konsistensi bahwa blueprint terkoreksi tidak memicu koreksi baru.
         """
-        print(f"[Agent 1 - Inspector] Menerima {len(feedback_directives)} umpan balik dari Agent 2 (SQA). Melakukan re-inspeksi & penyesuaian...")
+        print(f"[Agent 1 - Inspector] Menerima {len(feedback_directives)} umpan balik dari Agent 2 (SQA). Menerapkan koreksi ke blueprint...")
         directives = {d["para_id"]: d for d in feedback_directives}
         paragraphs = current_report["paragraphs"]
         for p in paragraphs:
@@ -210,7 +132,7 @@ class InspectorAgent:
             p["metadata"]["sqa_corrected"] = True
             p["metadata"]["sqa_reason"] = directive.get("reason", "Direvisi berdasarkan audit SQA Agent 2")
 
-        print("[Agent 1 - Inspector] Re-inspeksi selesai! Blueprint diperbarui dengan tingkat kepastian tinggi.")
+        print("[Agent 1 - Inspector] Koreksi diterapkan; blueprint dikirim kembali ke Agent 2 untuk uji konsistensi.")
         return {
             "source_doc": current_report["source_doc"],
             "total_paragraphs": current_report["total_paragraphs"],

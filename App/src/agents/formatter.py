@@ -20,6 +20,7 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.table import Table
+from docx.text.paragraph import Paragraph
 
 from src.ooxml.cloning import (
     clone_body_element,
@@ -38,14 +39,24 @@ from src.ooxml.numbering import (
 )
 from src.ooxml.tables import format_table
 from src.ooxml.text import SUBSUB_NUMBER_RE, strip_bab_prefix, strip_subbab_number, to_roman, to_title_case
-from src.ooxml.toc import generate_table_of_contents
-from src.ooxml.xml import num_pr_el, remove_child, replace_child, spacing_el, style_run, w_el
+from src.ooxml.toc import generate_table_of_contents, retarget_caption_list_fields
+from src.ooxml.xml import (
+    normalize_run_fonts,
+    num_pr_el,
+    remove_child,
+    replace_child,
+    sort_ppr_children,
+    spacing_el,
+    style_run,
+    w_el,
+)
 
 DEFAULT_OUTPUT_PATH = "output/hasil_skripsi_rapi.docx"
 TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "template_clean_ueu.docx")
 HEADING_NUM_ID = "1"
 FIRST_CHAPTER_PREFIXES = ("BAB 1", "BAB I", "PENDAHULUAN", "BAB 01")
 KEYWORD_PREFIXES = ("kata kunci", "keywords")
+INTERNAL_ATTRS = ("approved_label", "is_subsub")  # penanda internal, bukan atribut sah OOXML
 
 # (teks label, regex prefiks, spasi sebelum, spasi sesudah) dalam dxa
 _CAPTION_STYLES = {
@@ -70,11 +81,12 @@ class _BuildState:
     doc_out: Any
     numbering: Any
     next_list_num_id: int
-    tables_after_para: Dict[int, list]
-    inserted_tables: set = field(default_factory=set)
+    blocks_after_para: Dict[int, list]  # w:tbl / w:sdt sumber per indeks paragraf pendahulunya
+    inserted_blocks: set = field(default_factory=set)
     current_bab: int = 0
     caption_counts: Dict[str, int] = field(default_factory=lambda: {"CAPTION_GAMBAR": 0, "CAPTION_TABEL": 0})
     src_to_out_num_id: Dict[str, str] = field(default_factory=dict)
+    pending_chapter_title_run: Any = None  # run judul 'BAB X' tanpa judul, diisi baris judul berikutnya
 
     @property
     def caption_bab(self) -> int:
@@ -120,21 +132,21 @@ class FormattingActuatorAgent:
             doc_out=doc_out,
             numbering=numbering,
             next_list_num_id=next_num_id(numbering),
-            tables_after_para=self._map_tables_to_preceding_paragraph(doc_src),
+            blocks_after_para=self._map_blocks_to_preceding_paragraph(doc_src),
         )
         for item in approved_blueprint.get("paragraphs", []):
             orig_idx = item.get("para_id", 0)
             p_src = doc_src.paragraphs[orig_idx] if orig_idx < len(doc_src.paragraphs) else None
             renderer = self._renderers.get(item["approved_label"], self._render_unknown)
             renderer(state, item, p_src)
-            self._insert_tables_after_paragraph(state, orig_idx)
+            self._insert_blocks_after_paragraph(state, orig_idx)
 
         self._copy_remaining_tables(state)
-        self._copy_other_body_elements(doc_src, doc_out)
+        self._copy_other_body_elements(state)
         generate_table_of_contents(doc_out, has_frontmatter=has_frontmatter)
         self._apply_section_properties(doc_out, frontmatter_sect_pr, body_sect_pr)
-        for update_fields in doc_out.settings.element.findall(qn("w:updateFields")):
-            doc_out.settings.element.remove(update_fields)
+        self._strip_internal_attributes(doc_out)
+        sort_ppr_children(doc_out.element.body)
 
         self._report_content_audit(doc_src, doc_out)
         out_dir = os.path.dirname(output_docx_path)
@@ -170,14 +182,15 @@ class FormattingActuatorAgent:
                 body.remove(child)
 
     @staticmethod
-    def _map_tables_to_preceding_paragraph(doc_src) -> Dict[int, list]:
-        """Memetakan setiap w:tbl ke indeks paragraf yang mendahuluinya (zero-loss)."""
+    def _map_blocks_to_preceding_paragraph(doc_src) -> Dict[int, list]:
+        """Memetakan setiap w:tbl dan elemen body lain (mis. w:sdt Daftar Isi native) ke indeks
+        paragraf yang mendahuluinya, agar posisinya di output tetap sama (zero-loss)."""
         mapping: Dict[int, list] = {}
         para_count = 0
         for child in doc_src.element.body:
             if child.tag == qn("w:p"):
                 para_count += 1
-            elif child.tag == qn("w:tbl"):
+            elif child.tag != qn("w:sectPr"):
                 mapping.setdefault(max(0, para_count - 1), []).append(child)
         return mapping
 
@@ -198,6 +211,12 @@ class FormattingActuatorAgent:
         remove_child(body, "w:sectPr")
         body.append(copy.deepcopy(body_sect_pr))
 
+    @staticmethod
+    def _strip_internal_attributes(doc_out) -> None:
+        for p in doc_out.element.body.iter(qn("w:p")):
+            for attr in INTERNAL_ATTRS:
+                p.attrib.pop(attr, None)
+
     # ------------------------------------------------------------------
     # Renderer per label blueprint
     # ------------------------------------------------------------------
@@ -208,6 +227,17 @@ class FormattingActuatorAgent:
         if style:
             p.style = doc_out.styles[style]
         return p, p._p.get_or_add_pPr()
+
+    @staticmethod
+    def _clone_normalized(state: _BuildState, p_src, label: str, *, black: bool = True):
+        """Zero-loss: salin paragraf sumber apa adanya (sitasi Mendeley, footnote, hyperlink, italic,
+        superscript), lalu seragamkan hanya style paragraf serta font & ukuran run."""
+        clone = clone_paragraph(p_src._p, state.doc_src, state.doc_out, label)
+        pPr = clone.get_or_add_pPr()
+        for tag in ("w:pStyle", "w:numPr", "w:sectPr"):
+            remove_child(pPr, tag)
+        normalize_run_fonts(clone, 12, black=black)
+        return Paragraph(clone, state.doc_out._body), pPr
 
     def _render_frontmatter_title(self, state: _BuildState, item: Dict[str, Any], _p_src) -> None:
         doc_out = state.doc_out
@@ -235,11 +265,17 @@ class FormattingActuatorAgent:
             style_run(p.add_run(text), 14 if item.get("para_id", 0) == 0 else 12, bold=True)
 
     def _render_chapter_title(self, state: _BuildState, item: Dict[str, Any], _p_src) -> None:
+        title = strip_bab_prefix(item.get("text", "").strip())
+        if item.get("metadata", {}).get("chapter_title_continuation") and state.pending_chapter_title_run is not None:
+            # Format dua baris 'BAB I' + 'PENDAHULUAN': judul digabung ke heading bab sebelumnya
+            state.pending_chapter_title_run.text = title.upper()
+            state.pending_chapter_title_run = None
+            return
+
         state.current_bab += 1
         state.caption_counts = {kind: 0 for kind in state.caption_counts}
         state.src_to_out_num_id.clear()
-
-        title = strip_bab_prefix(item.get("text", "").strip())
+        has_own_title = bool(title)
         if not title:
             title = "PENDAHULUAN" if state.current_bab == 1 else f"BAB {to_roman(state.current_bab)}"
 
@@ -257,7 +293,9 @@ class FormattingActuatorAgent:
         line_break_run = p.add_run()
         line_break_run._r.append(w_el("br"))
         style_run(line_break_run, 14, bold=True, black=False)
-        style_run(p.add_run(title.upper()), 14, bold=True)
+        title_run = p.add_run(title.upper())
+        style_run(title_run, 14, bold=True)
+        state.pending_chapter_title_run = None if has_own_title else title_run
 
     def _render_subchapter(self, state: _BuildState, item: Dict[str, Any], _p_src) -> None:
         state.src_to_out_num_id.clear()
@@ -290,23 +328,25 @@ class FormattingActuatorAgent:
         elif rich and not text:
             print(f"[Agent 3 - Formatter] Zero-Loss: Deep-cloning paragraf kaya #{item.get('para_id', 0)} (rumus/OLE/field)")
             clone_paragraph(p_src._p, state.doc_src, state.doc_out, "BODY_PARAGRAPH")
-        elif text and rich:
-            clone_pPr = clone_paragraph(p_src._p, state.doc_src, state.doc_out, "BODY_PARAGRAPH").get_or_add_pPr()
-            replace_child(clone_pPr, _jc("both"))
-            replace_child(clone_pPr, spacing_el(0, 120, 276))
-            replace_child(clone_pPr, _ind(left=0, right=0, first_line=720))
+        elif text and item.get("metadata", {}).get("is_bibliography"):
+            self._render_bibliography_item(state, item, p_src)
         elif text:
             self._render_chapter_body_text(state, text, p_src)
         elif p_src is not None and has_content_besides_ppr(p_src._p):
             clone_paragraph(p_src._p, state.doc_src, state.doc_out, "BODY_PARAGRAPH")
 
     def _render_frontmatter_body(self, state: _BuildState, text: str, p_src, rich: bool) -> None:
+        is_keywords = text.lower().startswith(KEYWORD_PREFIXES) and ":" in text
         if rich:
             clone_paragraph(p_src._p, state.doc_src, state.doc_out, "BODY_PARAGRAPH")
+        elif text and p_src is not None and not is_keywords:
+            _p, pPr = self._clone_normalized(state, p_src, "BODY_PARAGRAPH", black=False)
+            replace_child(pPr, _jc("both"))
+            replace_child(pPr, spacing_el(0, 120, 276))
         elif text:
             p, pPr = self._new_paragraph(state.doc_out, "BODY_PARAGRAPH")
             pPr.append(_jc("both"))
-            if text.lower().startswith(KEYWORD_PREFIXES) and ":" in text:
+            if is_keywords:
                 pPr.append(spacing_el(120, 120, 276))
                 label, keywords = text.split(":", 1)
                 style_run(p.add_run(label.strip() + ": "), 12, bold=True, black=False)
@@ -318,23 +358,23 @@ class FormattingActuatorAgent:
             clone_paragraph(p_src._p, state.doc_src, state.doc_out, "BODY_PARAGRAPH")
 
     def _render_chapter_body_text(self, state: _BuildState, text: str, p_src) -> None:
-        p, pPr = self._new_paragraph(state.doc_out, "BODY_PARAGRAPH")
         src_pPr = p_src._p.find(qn("w:pPr")) if p_src is not None else None
         src_num_pr = src_pPr.find(qn("w:numPr")) if src_pPr is not None else None
+        if p_src is not None:
+            p, pPr = self._clone_normalized(state, p_src, "BODY_PARAGRAPH")
+        else:
+            p, pPr = self._new_paragraph(state.doc_out, "BODY_PARAGRAPH")
+            style_run(p.add_run(text), 12)
 
         if src_num_pr is not None:
-            pPr.append(num_pr_el(self._list_level(src_num_pr), self._output_list_num_id(state, src_num_pr)))
-            pPr.append(_jc("both"))
-            pPr.append(spacing_el(0, 60, 276))
-            pPr.append(_ind(left=720, hanging=360))
+            replace_child(pPr, num_pr_el(self._list_level(src_num_pr), self._output_list_num_id(state, src_num_pr)))
+            replace_child(pPr, _jc("both"))
+            replace_child(pPr, spacing_el(0, 60, 276))
+            replace_child(pPr, _ind(left=720, hanging=360))
         else:
-            p.style = state.doc_out.styles["Normal"]
-            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-            pPr.append(_jc("both"))
-            pPr.append(spacing_el(0, 120, 276))
-            pPr.append(_ind(left=0, right=0, first_line=720))
-
-        style_run(p.add_run(text), 12)
+            replace_child(pPr, _jc("both"))
+            replace_child(pPr, spacing_el(0, 120, 276))
+            replace_child(pPr, _ind(left=0, right=0, first_line=720))
         italicize_foreign_terms(p)
 
     @staticmethod
@@ -369,18 +409,18 @@ class FormattingActuatorAgent:
         add_seq_caption_field(p, display_prefix, state.caption_bab, state.caption_counts[label], title)
 
     def _render_bibliography_item(self, state: _BuildState, item: Dict[str, Any], p_src) -> None:
+        """Entri daftar pustaka APA: hanging indent 1,27 cm; field bibliografi Mendeley ikut tersalin."""
         text = item.get("text", "").strip()
-        has_links = p_src is not None and (p_src._p.findall(".//" + qn("w:hyperlink")) or p_src._p.findall(".//" + qn("w:fldSimple")))
-        if has_links:
-            clone_pPr = clone_paragraph(p_src._p, state.doc_src, state.doc_out, "DAFTAR_PUSTAKA_ITEM").get_or_add_pPr()
-            replace_child(clone_pPr, _ind(left=720, hanging=720))
-            replace_child(clone_pPr, spacing_el(0, 120, 276))
+        if p_src is not None:
+            _p, pPr = self._clone_normalized(state, p_src, "DAFTAR_PUSTAKA_ITEM")
         elif text:
             p, pPr = self._new_paragraph(state.doc_out, "DAFTAR_PUSTAKA_ITEM")
-            pPr.append(_jc("both"))
-            pPr.append(spacing_el(0, 120, 276))
-            pPr.append(_ind(left=720, hanging=720))
             style_run(p.add_run(text), 12)
+        else:
+            return
+        replace_child(pPr, _jc("both"))
+        replace_child(pPr, spacing_el(0, 120, 276))
+        replace_child(pPr, _ind(left=720, hanging=720))
 
     @staticmethod
     def _render_unknown(state: _BuildState, item: Dict[str, Any], p_src) -> None:
@@ -401,31 +441,38 @@ class FormattingActuatorAgent:
             format_table(Table(cloned, state.doc_out))
         except Exception as exc:  # tabel dengan struktur sel tidak lazim tetap disalin tanpa format
             print(f"[Agent 3 - Formatter] Peringatan: tabel disalin tanpa format ({exc})")
-        state.inserted_tables.add(tbl_elem)
+        state.inserted_blocks.add(tbl_elem)
         return cloned
 
-    def _insert_tables_after_paragraph(self, state: _BuildState, para_idx: int) -> None:
-        tables = state.tables_after_para.get(para_idx)
-        if not tables:
+    def _insert_blocks_after_paragraph(self, state: _BuildState, para_idx: int) -> None:
+        blocks = state.blocks_after_para.get(para_idx)
+        if not blocks:
             return
-        cursor = state.doc_out.paragraphs[-1]._p if state.doc_out.paragraphs else None
-        for tbl_elem in tables:
-            if tbl_elem not in state.inserted_tables:
-                cursor = self._clone_and_format_table(tbl_elem, state, after=cursor)
+        # Elemen body terakhir (bukan sekadar paragraf terakhir) agar urutan tabel/sdt beruntun terjaga
+        cursor = next((el for el in reversed(state.doc_out.element.body) if el.tag != qn("w:sectPr")), None)
+        for block in blocks:
+            if block in state.inserted_blocks:
+                continue
+            if block.tag == qn("w:tbl"):
+                cursor = self._clone_and_format_table(block, state, after=cursor)
+            else:
+                cursor = clone_body_element(block, state.doc_src, state.doc_out, after=cursor)
+                retarget_caption_list_fields(cursor)
+                state.inserted_blocks.add(block)
 
     def _copy_remaining_tables(self, state: _BuildState) -> None:
         for src_table in state.doc_src.tables:
-            if src_table._tbl not in state.inserted_tables:
+            if src_table._tbl not in state.inserted_blocks:
                 self._clone_and_format_table(src_table._tbl, state)
 
     @staticmethod
-    def _copy_other_body_elements(doc_src, doc_out) -> None:
-        """Menyalin elemen body selain paragraf/tabel/sectPr (mis. w:sdt) apa adanya."""
+    def _copy_other_body_elements(state: _BuildState) -> None:
+        """Fallback: elemen body non-paragraf/tabel yang belum tersisip disalin ke akhir dokumen."""
         skipped = {qn("w:p"), qn("w:tbl"), qn("w:sectPr")}
-        for child in list(doc_src.element.body):
-            if child.tag in skipped:
+        for child in list(state.doc_src.element.body):
+            if child.tag in skipped or child in state.inserted_blocks:
                 continue
-            clone_body_element(child, doc_src, doc_out)
+            retarget_caption_list_fields(clone_body_element(child, state.doc_src, state.doc_out))
             print(f"[Agent 3 - Formatter] Zero-Loss: Menyalin elemen body non-standar <{child.tag.split('}')[-1]}>")
 
     @staticmethod

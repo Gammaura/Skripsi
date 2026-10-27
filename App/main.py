@@ -68,10 +68,15 @@ def run_multi_agent_system(input_docx: str = DEFAULT_INPUT, output_docx: str = D
     print(f"Total Paragraf       : {draft_report['total_paragraphs']}")
     print(f"Koreksi Anomali (MAS): {approved_blueprint['total_corrections']} koreksi")
     print(f"Bab Tervalidasi      : {approved_blueprint['approved_chapters']}")
-    print(f"SQA Acceptance Score : {qa_result.get('qa_score', 100.0)}% ({qa_result.get('status', 'PASS')})")
-    print("Status Kepatuhan     : 100% STANDAR UEU 2018 (Margin 4-3-3-3, Spasi 1.15, TNR 12)")
+    print(f"Status Blueprint     : {approved_blueprint['sqa_tier1_status']} ({approved_blueprint['sqa_tier1_iterations']} iterasi)")
+    print(f"SQA Acceptance Score : {qa_result.get('qa_score')}% ({qa_result.get('passed_checks')}/{qa_result.get('total_checks')} kriteria, {qa_result.get('status')})")
+    for defect in qa_result.get("defects", []):
+        print(f"  - Cacat: {defect}")
     print(RULE)
-    print("\n[SUKSES] Dokumen akademik Anda siap diunduh dan digunakan untuk sidang/ujian!")
+    if qa_result.get("passed"):
+        print("\n[SUKSES] Dokumen lolos seluruh kriteria SQA standar UEU 2018.")
+    else:
+        print("\n[PERHATIAN] Dokumen tersimpan, namun cacat di atas perlu diperiksa manual sebelum digunakan.")
 
 
 if __name__ == "__main__":

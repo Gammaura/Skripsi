@@ -214,4 +214,30 @@
                         </table>
                     </div>
                 </div>
+
+                <!-- Kueri Active Learning: paragraf ambigu yang perlu dikonfirmasi pengguna -->
+                <div class="bento-card" id="review-card" style="display: none;">
+                    <div class="card-header-clean">
+                        <span style="font-weight: 700; color: var(--text-heading);"> Bantu Agent 1 Belajar: Konfirmasi Paragraf Ambigu</span>
+                        <span class="pill-badge badge-blue" id="review-count-badge">0 Paragraf</span>
+                    </div>
+                    <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 0.6rem;">
+                        Model ragu pada paragraf berikut dan aturan Agent 2 tidak dapat memastikannya. Pilih label yang benar
+                        lalu simpan; jawaban Anda menjadi data latih Active Learning untuk Agent 1.
+                    </p>
+                    <div style="max-height: 260px; overflow-y: auto; border: 1px solid var(--border-card); border-radius: 8px;">
+                        <table class="clean-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 50px;">No.</th>
+                                    <th>Potongan Teks</th>
+                                    <th style="width: 150px;">Tebakan Model</th>
+                                    <th style="width: 190px;">Label yang Benar</th>
+                                    <th style="width: 80px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="review-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
             </div>

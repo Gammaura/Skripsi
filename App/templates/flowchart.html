@@ -32,7 +32,7 @@
                         <div class="loop-rail-left">
                             <div class="loop-badge-left">
                                 <span style="font-weight: 800; color: #dc2626; font-size: 0.7rem; display: block; line-height: 1.1;"> ADA ANOMALI</span>
-                                <span style="font-size: 0.65rem; color: var(--text-body); line-height: 1.1; margin-top: 2px; display: block;">Periksa Ulang (Loop)<br><b style="color: #b91c1c;">(Maks. 3 Iterasi)</b></span>
+                                <span style="font-size: 0.65rem; color: var(--text-body); line-height: 1.1; margin-top: 2px; display: block;">Terapkan Koreksi & Uji Ulang<br><b style="color: #b91c1c;">(Maks. 3 Iterasi)</b></span>
                             </div>
                         </div>
 
@@ -43,9 +43,9 @@
                                     <span style="font-size: 0.72rem; font-weight: 800; color: var(--primary-blue);">LANGKAH 2 &bull; AGENT 1 (INSPECTOR)</span>
                                     <div style="font-size: 0.92rem; font-weight: 700; color: var(--text-heading);">Klasifikasi Peran Paragraf (Kecerdasan Buatan)</div>
                                 </div>
-                                <span class="pill-badge badge-blue">Random Forest AI</span>
+                                <span class="pill-badge badge-blue">Random Forest (ML Murni)</span>
                             </div>
-                            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.2rem;">Membaca 14 ciri khas teks dan format (ukuran huruf, ketebalan, dan kata kunci) untuk mengenali judul bab, sub-bab, maupun paragraf isi.</div>
+                            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.2rem;">Model ML murni membaca kata-kata (TF-IDF) dan 20 ciri tata letak (ukuran huruf, ketebalan, spasi, posisi) untuk mengenali judul bab, sub-bab, maupun paragraf isi, lalu menandai paragraf yang diragukan (keyakinan &lt; 70%).</div>
                         </div>
 
                         <div class="flow-arrow-down">&darr;</div>
@@ -57,12 +57,12 @@
                                 <span class="pill-badge" style="background: #faf4ea; color: var(--amber-text); font-size: 0.68rem; font-weight: 800;">AUDIT TAHAP 1</span>
                             </div>
                             <div style="font-size: 0.9rem; font-weight: 800; color: var(--amber-text); margin: 0.2rem 0;">Apakah Susunan Bab Berurutan Rapi (Bab 1 s/d Bab 5)?</div>
-                            <div style="font-size: 0.76rem; color: var(--amber-text);">Agent 2 memeriksa draf dari Agent 1. Jika ada judul yang melompat atau salah tebak, sistem memicu panah balik untuk diperiksa ulang.</div>
+                            <div style="font-size: 0.76rem; color: var(--amber-text);">Agent 2 memeriksa draf Agent 1 dengan aturan baku UEU. Jika ada salah tebak, koreksinya dikirim balik ke Agent 1 untuk diterapkan, lalu draf diaudit ulang untuk memastikan tidak ada koreksi baru (uji konsistensi).</div>
                             
                             <!-- Decision Branch Indicators -->
                             <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed #e6c888; margin-top: 0.45rem; padding-top: 0.35rem; font-size: 0.72rem;">
                                 <span style="color: #dc2626; font-weight: 800;">◀ [TIDAK] Ada Anomali (Loop ke Agent 1)</span>
-                                <span style="color: var(--emerald-text); font-weight: 800;">[YA] 100% Lolos Audit ▼</span>
+                                <span style="color: var(--emerald-text); font-weight: 800;">[YA] Konsisten, Tanpa Koreksi Baru ▼</span>
                             </div>
                         </div>
                     </div>
@@ -83,8 +83,8 @@
                         <!-- Visual Loopback Rail (Gate 2 -> Step 3) on the Right -->
                         <div class="loop-rail-right">
                             <div class="loop-badge-right">
-                                <span style="font-weight: 800; color: #dc2626; font-size: 0.7rem; display: block; line-height: 1.1;"> BELUM 100%</span>
-                                <span style="font-size: 0.65rem; color: var(--text-body); line-height: 1.1; margin-top: 2px; display: block;">Perbaikan Format (Loop)<br><b style="color: #b91c1c;">(Maks. 3 Iterasi)</b></span>
+                                <span style="font-weight: 800; color: #dc2626; font-size: 0.7rem; display: block; line-height: 1.1;"> ADA CACAT</span>
+                                <span style="font-size: 0.65rem; color: var(--text-body); line-height: 1.1; margin-top: 2px; display: block;">Ulangi Format (Loop)<br><b style="color: #b91c1c;">(Berhenti bila cacat tak berubah)</b></span>
                             </div>
                         </div>
 
@@ -97,7 +97,7 @@
                                 </div>
                                 <span class="pill-badge badge-blue">Format Baku</span>
                             </div>
-                            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.2rem;">Menerapkan margin 4-3-3-3 cm, nomor Romawi di awal & Latin di isi, daftar tabel rapi, serta rumus dan gambar yang terlindungi.</div>
+                            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.2rem;">Menerapkan margin 4-3-3-3 cm, nomor Romawi di awal & Latin di isi, daftar tabel rapi, serta menyalin isi paragraf apa adanya sehingga rumus, gambar, sitasi Mendeley, dan catatan kaki tidak hilang.</div>
                         </div>
 
                         <div class="flow-arrow-down">&darr;</div>
@@ -108,12 +108,12 @@
                                 <span style="font-size: 0.72rem; font-weight: 800; color: var(--emerald-text);">PINTU 2 &bull; PENGAWAS DOKUMEN JADI (AGENT 2)</span>
                                 <span class="pill-badge" style="background: #dcfce7; color: #1b4d24; font-size: 0.68rem; font-weight: 800;">AUDIT TAHAP 2</span>
                             </div>
-                            <div style="font-size: 0.9rem; font-weight: 800; color: #1b4d24; margin: 0.2rem 0;">Apakah Dokumen Akhir Sudah 100% Sesuai Aturan Kampus?</div>
-                            <div style="font-size: 0.76rem; color: var(--emerald-text);">Memeriksa 10 aturan wajib: ukuran kertas A4, margin baku, tipografi Times New Roman, dan nomor halaman sebelum naskah diterbitkan.</div>
+                            <div style="font-size: 0.9rem; font-weight: 800; color: #1b4d24; margin: 0.2rem 0;">Apakah Dokumen Akhir Lolos 8 Kriteria Kampus?</div>
+                            <div style="font-size: 0.76rem; color: var(--emerald-text);">Memeriksa 8 kriteria: margin 4-3-3-3 cm, penomoran halaman Romawi/Latin, judul bab rata tengah, spasi sub-bab, spasi paragraf isi, kertas A4, header UEU, dan tabel APA tanpa garis vertikal.</div>
 
                             <!-- Decision Branch Indicators -->
                             <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed #86efac; margin-top: 0.45rem; padding-top: 0.35rem; font-size: 0.72rem;">
-                                <span style="color: var(--emerald-text); font-weight: 800;">▼ [YA] Status PASS & Skor 100%</span>
+                                <span style="color: var(--emerald-text); font-weight: 800;">▼ [YA] Status PASS (8/8 Kriteria)</span>
                                 <span style="color: #dc2626; font-weight: 800;">[TIDAK] Format Cacat (Loop ke Agent 3) ▶</span>
                             </div>
                         </div>
@@ -123,7 +123,7 @@
                     <div class="flow-pass-connector">
                         <div class="flow-pass-pill">
                             <span style="color: var(--emerald-text); font-weight: 800;"> TAHAP 2 LOLOS</span>
-                            <span style="color: var(--text-muted);">&bull; Dokumen Sempurna 100%, Siap Diterbitkan</span>
+                            <span style="color: var(--text-muted);">&bull; Skor & Sisa Cacat Dilaporkan Apa Adanya</span>
                         </div>
                         <div class="flow-arrow-down" style="color: var(--emerald-text); font-weight: 900;">&darr;</div>
                     </div>
@@ -131,8 +131,8 @@
                     <!-- Step 4: Output Final -->
                     <div class="flow-node" style="background: #f8faf8; border-color: #cfe1d2; text-align: center;">
                         <span style="font-size: 0.72rem; font-weight: 800; color: var(--emerald-text);">HASIL AKHIR &bull; DOKUMEN RESMI</span>
-                        <div style="font-size: 0.95rem; font-weight: 800; color: #1b4d24; margin-top: 0.2rem;">Naskah Siap Sempro Terstandarisasi 100% UEU (.docx)</div>
-                        <div style="font-size: 0.78rem; color: var(--emerald-text); margin-top: 0.2rem;">Naskah resmi siap diunduh untuk diajukan ke dosen penelaah proposal. Sistem otomatis menyimpan pengalaman koreksi agar semakin pintar.</div>
+                        <div style="font-size: 0.95rem; font-weight: 800; color: #1b4d24; margin-top: 0.2rem;">Naskah Terformat Standar UEU (.docx)</div>
+                        <div style="font-size: 0.78rem; color: var(--emerald-text); margin-top: 0.2rem;">Naskah siap diunduh bersama skor mutunya. Paragraf yang masih diragukan model ditampilkan untuk dikonfirmasi pengguna; setiap 5 jawaban memicu pelatihan ulang Agent 1 yang hanya dipakai bila kinerjanya tidak turun (Active Learning).</div>
                     </div>
                 </div>
             </div>
@@ -150,14 +150,14 @@
                     
                     <h3 style="font-size: 0.92rem; font-weight: 700; color: var(--text-heading); margin: 0.3rem 0;">Mengapa Perlu 2 Pintu Pengawasan?</h3>
                     <p style="font-size: 0.78rem; color: var(--text-body); line-height: 1.45;">
-                        Pintu 1 memastikan susunan bab tidak ada yang terbalik sebelum dokumen mulai diformat. Pintu 2 memastikan hasil cetak fisik berkas Word sudah 100% rapi sebelum diserahkan ke pengguna.
+                        Pintu 1 memastikan susunan bab tidak ada yang terbalik sebelum dokumen mulai diformat. Pintu 2 menguji berkas Word jadi terhadap 8 kriteria kampus dan melaporkan sisa kekurangan sebelum diserahkan ke pengguna.
                     </p>
                 </div>
                 <div class="bento-card">
                     
                     <h3 style="font-size: 0.92rem; font-weight: 700; color: var(--text-heading); margin: 0.3rem 0;">Mengapa Ada Panah Balik (Feedback Loop)?</h3>
                     <p style="font-size: 0.78rem; color: var(--text-body); line-height: 1.45;">
-                        Jika terdeteksi salah tebak atau format yang meleset, sistem tidak berhenti atau mengalami error (crash), melainkan otomatis mengulang proses perbaikan hingga maksimal 3 iterasi secara mandiri.
+                        Salah tebak dikoreksi Agent 2 lalu diuji ulang hingga konsisten (maks. 3 iterasi). Pada tahap format, pengulangan berhenti otomatis bila cacat tidak berubah, dan sisa cacat dilaporkan ke pengguna alih-alih disembunyikan.
                     </p>
                 </div>
             </div>

@@ -15,7 +15,9 @@ Halaman:
 import os
 import re
 import time
+import uuid
 import shutil
+from collections import OrderedDict
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, FileResponse
 import uvicorn
@@ -23,7 +25,7 @@ import uvicorn
 from src.agents.inspector import InspectorAgent
 from src.agents.critic import QualityCriticAgent
 from src.agents.formatter import FormattingActuatorAgent
-from src.active_learning import ActiveLearningManager
+from src.active_learning import SOURCE_MANUAL, ActiveLearningManager
 
 app = FastAPI(
     title="Asdoku MAS Tester",
@@ -41,11 +43,36 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Inisialisasi Agen & Active Learning Manager
 print("[SYSTEM] Menginisialisasi Multi-Agent System & Active Learning Loop...")
-inspector = InspectorAgent()
-critic = QualityCriticAgent()
-formatter = FormattingActuatorAgent()
 active_learning = ActiveLearningManager()
+inspector = InspectorAgent()
+critic = QualityCriticAgent(active_learning)  # satu pool feedback dipakai bersama
+formatter = FormattingActuatorAgent()
 print("[SYSTEM] Seluruh Agen & Self-Improvement Loop Siap Beroperasi!")
+
+# Kueri Active Learning yang menunggu jawaban pengguna: review_id -> paragraf beserta fitur tipografinya.
+# Disimpan di memori server (bukan dikirim balik oleh klien) agar fitur latih tidak dapat dimanipulasi.
+REVIEW_CACHE_SIZE = 500
+RETRAIN_EVERY_MANUAL_LABELS = 5  # retraining otomatis tiap 5 label manual baru
+review_cache: "OrderedDict[str, dict]" = OrderedDict()
+
+
+def _register_review_queue(queue: list) -> list:
+    """Menyimpan kueri ke cache dan mengembalikan versi ringkas untuk UI."""
+    public = []
+    for item in queue:
+        review_id = uuid.uuid4().hex
+        review_cache[review_id] = item
+        public.append({
+            "review_id": review_id,
+            "idx": item["para_id"],
+            "text": item["text"][:160],
+            "predicted_label": item["predicted_label"],
+            "confidence": item["confidence"],
+            "alternatives": item["alternatives"],
+        })
+    while len(review_cache) > REVIEW_CACHE_SIZE:
+        review_cache.popitem(last=False)
+    return public
 
 # ============================================================
 # TEMPLATE LOADER & MULTI-PAGE RENDERER
@@ -112,17 +139,15 @@ async def page_alat():
 
 def run_auto_retrain():
     try:
-        active_learning.retrain_agent_1()
-        inspector.reload_model()
-        print("[Active Learning] Background Retraining & Hot-Reload berhasil diselesaikan!")
+        result = active_learning.retrain_agent_1()
+        if result.get("accepted"):
+            inspector.reload_model()
+            print("[Active Learning] Background Retraining & Hot-Reload berhasil diselesaikan!")
     except Exception as e:
         print(f"[Active Learning] Background Retraining error: {e}")
 
 @app.post("/api/format")
-async def api_format_document(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...)
-):
+async def api_format_document(file: UploadFile = File(...)):
     if not file.filename.endswith(".docx"):
         raise HTTPException(status_code=400, detail="Hanya berkas .docx yang didukung.")
 
@@ -153,11 +178,8 @@ async def api_format_document(
         max_iterations=3
     )
     qa_result = tier2_res["final_qa_result"]
-
-    # 3. Otomatisasi Continuous Self-Learning
-    if approved.get("total_corrections", 0) > 0:
-        print(f"[Active Learning] Menjadwalkan Retraining Mandiri di Latar Belakang untuk {approved['total_corrections']} sampel...")
-        background_tasks.add_task(run_auto_retrain)
+    # Weak label Agent 2 tetap tercatat di pool, tetapi tidak memicu retraining: uji non-regresi
+    # menunjukkan label tersebut menurunkan kinerja. Retraining dipicu oleh label manual (lihat feedback).
 
     elapsed_time = round(time.time() - start_time, 2)
 
@@ -178,6 +200,7 @@ async def api_format_document(
             for c in approved.get("corrections_log", [])
         ],
         "approved_chapters": approved.get("approved_chapters", []),
+        "review_queue": _register_review_queue(approved.get("review_queue", [])),
         "sqa_score": qa_result.get("qa_score", qa_result.get("score", 100.0)),
         "sqa_status": qa_result.get("status", "PASS"),
         "sqa_defects": qa_result.get("defects", []),
@@ -196,25 +219,41 @@ async def api_download_file(filename: str):
 
 @app.post("/api/active-learning/feedback")
 async def api_al_feedback(
+    background_tasks: BackgroundTasks,
     paragraph_idx: int = Form(...),
     paragraph_text: str = Form(...),
-    correct_label: str = Form(...)
+    correct_label: str = Form(...),
+    review_id: str = Form("")
 ):
+    # Jawaban atas kueri Active Learning memakai teks & fitur asli dari cache server
+    cached = review_cache.get(review_id) if review_id else None
     try:
-        active_learning.record_manual_correction(
-            idx=paragraph_idx,
-            text=paragraph_text,
-            correct_label=correct_label
+        saved = active_learning.record_manual_correction(
+            idx=cached["para_id"] if cached else paragraph_idx,
+            text=cached["text"] if cached else paragraph_text,
+            correct_label=correct_label,
+            raw_features=cached["raw_features"] if cached else None,
         )
-        return {"status": "success", "message": "Feedback berhasil disimpan ke Active Learning Pool."}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+    review_cache.pop(review_id, None)
+    message = "Label tersimpan ke Active Learning Pool." if saved else "Label yang sama sudah ada di pool."
+
+    manual_total = active_learning.get_stats()["label_sources"].get(SOURCE_MANUAL, 0)
+    retrain_scheduled = bool(saved) and manual_total % RETRAIN_EVERY_MANUAL_LABELS == 0
+    if retrain_scheduled:
+        print(f"[Active Learning] {manual_total} label manual terkumpul; menjadwalkan retraining di latar belakang...")
+        background_tasks.add_task(run_auto_retrain)
+    return {"status": "success", "saved": saved, "message": message, "retrain_scheduled": retrain_scheduled}
 
 @app.post("/api/active-learning/retrain")
 async def api_al_retrain():
     try:
         result = active_learning.retrain_agent_1()
-        inspector.reload_model()
+        if result.get("accepted"):
+            inspector.reload_model()
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

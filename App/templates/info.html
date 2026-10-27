@@ -77,10 +77,10 @@
                         <div style="background: #ffffff; border: 1px solid var(--border-card); border-radius: 8px; padding: 0.75rem;">
                             <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.2rem;">
                                 <div style="font-size: 0.85rem; font-weight: 800; color: var(--text-heading);">Active Learning Loop</div>
-                                <span class="pill-badge badge-emerald" style="font-size: 0.65rem;">Belajar Mandiri</span>
+                                <span class="pill-badge badge-emerald" style="font-size: 0.65rem;">Belajar dari Pengguna</span>
                             </div>
                             <p style="font-size: 0.76rem; color: var(--text-body); line-height: 1.45;">
-                                Mekanisme cerdas di mana sistem secara mandiri belajar dari koreksi yang terjadi. Ketika Agent 2 (Quality Critic) menemukan dan membetulkan urutan bab yang keliru, data koreksi tersebut otomatis disimpan ke laci data latih baru. Model kecerdasan buatan kemudian memperbarui pengetahuannya di latar belakang tanpa perlu dilatih ulang secara manual.
+                                Mekanisme di mana model bertanya kepada manusia tentang paragraf yang paling membuatnya ragu (<em>uncertainty sampling</em>). Paragraf dengan keyakinan model di bawah 70% yang juga tidak dapat dipastikan aturan Agent 2 ditampilkan kepada pengguna untuk dipilih label yang benar. Setiap 5 jawaban, Agent 1 dilatih ulang di latar belakang, dan model baru hanya dipakai bila kinerjanya pada data uji tidak turun (uji non-regresi). Koreksi otomatis Agent 2 tetap dicatat sebagai label lemah (<em>weak label</em>), tetapi tidak dipakai melatih karena terbukti menurunkan kinerja.
                             </p>
                         </div>
 
@@ -194,9 +194,9 @@
                                 <span class="pill-badge badge-blue" style="font-size: 0.65rem;">Pengawasan Mutu</span>
                             </div>
                             <p style="font-size: 0.76rem; color: var(--text-body); line-height: 1.45;">
-                                Sistem pengawasan kualitas dua tahap untuk menjamin naskah bebas dari kesalahan format:
-                                <br>&bull; <strong>Tier 1 Gatekeeper (Audit Struktur):</strong> Memeriksa apakah urutan bab sudah runtut sebelum dokumen mulai diformat.
-                                <br>&bull; <strong>Tier 2 Acceptance Gate (Audit Fisik Jadi):</strong> Menguji 10 aturan tata letak format baku (seperti margin 4-3-3-3 cm, ukuran kertas A4, dan penomoran Romawi/Latin) pada dokumen hasil sebelum diserahkan ke mahasiswa.
+                                Sistem pengawasan kualitas dua tahap untuk mendeteksi dan mengurangi kesalahan struktur maupun format:
+                                <br>&bull; <strong>Tier 1 Gatekeeper (Audit Struktur):</strong> Mengoreksi tebakan Agent 1 dengan aturan baku UEU dan memastikan urutan bab runtut. Koreksi diterapkan Agent 1, lalu draf diaudit ulang sebagai uji konsistensi sebelum dokumen mulai diformat.
+                                <br>&bull; <strong>Tier 2 Acceptance Gate (Audit Fisik Jadi):</strong> Menguji 8 kriteria tata letak format baku (margin 4-3-3-3 cm, penomoran Romawi/Latin, judul bab rata tengah, spasi sub-bab, spasi paragraf isi, kertas A4, header UEU, dan tabel APA) pada dokumen hasil, lalu melaporkan skor dan sisa cacat apa adanya.
                             </p>
                         </div>
 

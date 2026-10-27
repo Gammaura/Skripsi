@@ -14,16 +14,16 @@ flowchart LR
     end
 
     subgraph MAS ["2. Eksekusi Tri-Agent & Two-Tier SQA"]
-        B --> C["Agent 1: Inspector<br/>(Random Forest Classifier)"]
-        C <-->|"SQA Tier 1:<br/>5 Guardrails"| D["Agent 2: Quality Critic<br/>(Gatekeeper & Auditor)"]
-        D -->|"Approved<br/>Blueprint"| E["Agent 3: Actuator<br/>(OpenXML Rebuilder)"]
+        B --> C["Agent 1: Inspector<br/>(Random Forest, ML Murni)"]
+        C <-->|"SQA Tier 1:<br/>Koreksi Aturan + Uji Konsistensi"| D["Agent 2: Quality Critic<br/>(Rule-Based Gatekeeper & Auditor)"]
+        D -->|"Approved<br/>Blueprint"| E["Agent 3: Actuator<br/>(OpenXML Zero-Loss)"]
         E <-->|"SQA Tier 2:<br/>8 Kriteria UEU"| D
     end
 
     subgraph EVAL ["3. Evaluasi & Active Learning"]
-        D -. "Koreksi Label" .-> F["Active Learning Pool<br/>(Retrain & Hot-Reload)"]
+        D -. "Kueri Ambigu → Label Manual" .-> F["Active Learning Pool<br/>(Retrain + Uji Non-Regresi)"]
         F -.-> C
-        D --> G["Evaluasi Metrik:<br/>Akurasi 97.22% | SQA 100% PASS"]
+        D --> G["Evaluasi Metrik:<br/>Akurasi 97.22% | Skor SQA 8 Kriteria"]
     end
 
     subgraph OUT ["4. Output & Web UI"]

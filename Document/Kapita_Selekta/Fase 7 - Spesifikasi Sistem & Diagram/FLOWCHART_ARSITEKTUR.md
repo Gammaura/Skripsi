@@ -48,7 +48,7 @@ flowchart TD
     subgraph S2 ["2. EKSEKUSI ALGORITMA UTAMA (TRI-AGENT SYSTEM)"]
         direction TB
         
-        subgraph A1_BOX ["Agent 1: Inspector (Klasifikasi NLP & ML)"]
+        subgraph A1_BOX ["Agent 1: Inspector (Klasifikasi ML Murni, Tanpa Aturan)"]
             A1_1["Inferensi Model Random Forest (Balanced)<br/>vs Baseline Logistic Regression"]
             A1_2["Penyusunan Draft Blueprint Struktur<br/>& Perhitungan Confidence Score"]
             A1_3{"Confidence Score<br/>&lt; 0.70?"}
@@ -60,11 +60,11 @@ flowchart TD
             A1_3 -- "Tidak" --> A1_5
         end
 
-        subgraph A2_BOX ["Agent 2: Quality Critic (SQA Tier 1 - Blueprint Gate)"]
-            A2_1["Audit Urutan Bab Monotonik (Bab I -> II -> III)<br/>& Regex Priority Pattern (^BAB [IVX0-9]+)"]
+        subgraph A2_BOX ["Agent 2: Quality Critic (Rule-Based, SQA Tier 1 - Blueprint Gate)"]
+            A2_1["Rule Prior per Paragraf (^BAB, Judul Baku, Caption)<br/>& Audit Urutan Bab Monotonik (Bab I -> II -> III)"]
             A2_2["Eksekusi 5 Lapisan Guardrail:<br/>Karantina Frontmatter, Isolasi Sub-bab 1.7,<br/>Filter Rumus & Caption Gambar/Tabel"]
-            A2_3{"Struktur Blueprint<br/>100% Konsisten?"}
-            A2_4["Kirim Feedback Directives &<br/>Re-Inspeksi Adaptif"]
+            A2_3{"Blueprint Konsisten<br/>(Tanpa Koreksi Baru)?"}
+            A2_4["Kirim Feedback Directives:<br/>Agent 1 Terapkan Koreksi, Lalu Diaudit Ulang (Maks. 3x)"]
             A2_5["Hasilkan Approved Blueprint"]
             
             A2_1 --> A2_2 --> A2_3
@@ -73,7 +73,7 @@ flowchart TD
         end
 
         subgraph A3_BOX ["Agent 3: Formatting Actuator (Rekonstruksi OpenXML)"]
-            A3_1["Sanitasi Total Template Kotor:<br/>Hapus Tag &lt;w:numPr&gt; Liar & Reset Indentasi"]
+            A3_1["Salin-lalu-Normalisasi (Zero-Loss):<br/>Sitasi Mendeley, Footnote, Italic Tetap Utuh;<br/>Hanya Spasi, Indentasi & Font yang Diseragamkan"]
             A3_2["Rekonstruksi Cover Resmi UEU (Logo 3.0 cm)<br/>& Isolasi 3 Section (link_to_previous = False)"]
             A3_3["Injeksi Dual Page Numbering (Romawi i,ii vs Latin 1,2)<br/>& Tag &lt;w:outlineLvl&gt; Heading 1-3 ke Navigation Pane"]
             A3_4["Generate Dynamic TOC (&lt;w:updateFields&gt;)<br/>& Standarisasi Tabel APA 7th Edition"]
@@ -95,20 +95,22 @@ flowchart TD
         direction TB
         EV1["Evaluasi Performa Model Klasifikasi NLP:<br/>Accuracy (97,22%), Macro/Weighted F1 (0,97),<br/>& Confusion Matrix"]
         EV2["Audit Fisik SQA Tier 2 (Artifact Acceptance Gate):<br/>Verifikasi 8 Kriteria SK Rektor UEU No. 5/2018<br/>(Margin 4-3-3-3, Kertas A4, Spasi 1.15, Header, APA 7)"]
-        EV3{"Skor Kepatuhan<br/>SQA Tier 2 = 100%?"}
-        EV4["Instruksi Auto-Remediasi<br/>Elemen XML Cacat"]
+        EV3{"Lolos 8/8<br/>Kriteria?"}
+        EV4["Ulangi Penyusunan Format<br/>(Berhenti Bila Cacat Tidak Berubah)"]
         
-        AL1["Simpan Koreksi Deterministik Agent 2<br/>ke Repositori Feedback (.csv)"]
-        AL2{"Sampel Baru<br/>>= 5 Data?"}
-        AL3["Continuous Retraining &<br/>Hot-Reload Model (0s Downtime)"]
+        AL0["Kueri Paragraf Ambigu ke Pengguna<br/>(Least-Confidence, Maks. 20) → Label Manual"]
+        AL1["Catat Weak Label Agent 2<br/>(Untuk Analisis, Tidak Memicu Retraining)"]
+        AL2{"Label Manual Baru<br/>>= 5?"}
+        AL3["Retraining + Uji Non-Regresi:<br/>Hot-Reload Hanya Bila Macro-F1 Tidak Turun"]
         
         A2_4 -.->|"Catat Koreksi Label"| AL1
-        AL1 --> AL2
+        A1_4 -.->|"Ambigu & Tak Dipastikan Aturan"| AL0
+        AL0 --> AL2
         AL2 -- "Ya" --> AL3
         AL3 -.->|"Update Bobot Model"| A1_1
         
         A3_4 --> EV1 --> EV2 --> EV3
-        EV3 -- "Belum Lulus (&lt; 100%)" --> EV4
+        EV3 -- "Belum (Ada Cacat)" --> EV4
         EV4 -->|"Loop Remediasi Tier 2"| A3_2
     end
 
@@ -118,10 +120,11 @@ flowchart TD
     subgraph S4 ["4. OUTPUT VISUAL & USER INTERFACE (WEB STUDIO)"]
         direction TB
         UI1["Render Live Execution Terminal Log<br/>& Visualisasi Pipeline Antar-Agen (alat.html)"]
-        UI2["Tampilkan Kartu Skor Kepatuhan Mutu:<br/>SQA Tier 2 = 100% PASS & Waktu Proses (~0,98 Detik)"]
+        UI2["Tampilkan Skor 8 Kriteria, Sisa Cacat,<br/>Waktu Proses & Kartu Kueri Paragraf Ambigu"]
         UI3(["Unduh Dokumen Akademik Terformat:<br/>(Asdoku) - Nama_File.docx"])
         
-        EV3 -- "Lulus (100% PASS)" --> UI1
+        EV3 -- "Lulus (PASS 8/8)" --> UI1
+        EV4 -.->|"Cacat Tak Berubah: Dilaporkan"| UI1
         UI1 --> UI2 --> UI3
     end
 
@@ -132,7 +135,7 @@ flowchart TD
     class A1_1,A1_2,A1_4,A1_5 agent1Style
     class A2_1,A2_2,A2_4,A2_5 agent2Style
     class A3_1,A3_2,A3_3,A3_4 agent3Style
-    class EV1,EV2,EV4,AL1,AL3 evalStyle
+    class EV1,EV2,EV4,AL0,AL1,AL3 evalStyle
     class UI1,UI2,UI3 uiStyle
     class A1_3,A2_3,EV3,AL2 decisionStyle
 ```
@@ -157,20 +160,21 @@ Memvisualisasikan proses unggah berkas `.docx` melalui antarmuka FastAPI (**FR-0
 
 ### Blok 2 (Eksekusi Algoritma Utama — Tri-Agent System)
 Memvisualisasikan alur kerja kolaboratif tiga agen:
-* **Agent 1 (Inspector):** Mengklasifikasikan paragraf ke label struktur dan menandai ambiguitas jika *confidence score* $< 0,70$ (**FR-03, FR-04**).
-* **Agent 2 (Quality Critic - SQA Tier 1):** Mengaudit urutan bab monotonik ($\text{Bab I} \rightarrow \text{Bab II} \rightarrow \text{Bab III}$) serta mengeksekusi **5 Lapisan Guardrail** (karantina *frontmatter*, isolasi zona sub-bab 1.7 Sistematika Penulisan, filter proteksi rumus & *caption*) (**FR-05 s/d FR-08**).
-* **Agent 3 (Formatting Actuator):** Melakukan sanitasi pohon DOM OpenXML (penghapusan tag `<w:numPr>` liar), rekonstruksi sampul resmi UEU (logo 3.0 cm), isolasi 3 *section* (`link_to_previous = False`) untuk *dual page numbering*, injeksi `<w:outlineLvl>` untuk *Heading 1–3* ke *Navigation Pane*, pembuatan *Dynamic TOC*, dan standarisasi tabel APA 7th Edition (**FR-09 s/d FR-13**).
+* **Agent 1 (Inspector):** Mengklasifikasikan paragraf ke label struktur **murni dengan model Machine Learning** (tanpa aturan buatan) dan menandai ambiguitas jika *confidence score* $< 0,70$ (**FR-03, FR-04**).
+* **Agent 2 (Quality Critic - SQA Tier 1):** Agen berbasis aturan yang menerapkan *rule prior* per paragraf, lalu mengaudit urutan bab monotonik ($\text{Bab I} \rightarrow \text{Bab II} \rightarrow \text{Bab III}$) serta mengeksekusi **5 Lapisan Guardrail** (karantina *frontmatter*, isolasi zona sub-bab 1.7 Sistematika Penulisan, filter proteksi rumus & *caption*) (**FR-05 s/d FR-08**). Koreksi dikirim ke *Agent 1* untuk diterapkan, lalu *blueprint* diaudit ulang sebagai uji konsistensi (maks. 3 iterasi); model tidak memprediksi ulang.
+* **Agent 3 (Formatting Actuator):** Menyalin paragraf sumber secara utuh lalu menormalisasi spasi, indentasi, dan font (*zero-loss*: sitasi Mendeley, catatan kaki, hyperlink, dan cetak miring tetap utuh); melakukan sanitasi pohon DOM OpenXML (penghapusan tag `<w:numPr>` liar), rekonstruksi sampul resmi UEU (logo 3.0 cm), isolasi 3 *section* (`link_to_previous = False`) untuk *dual page numbering*, injeksi `<w:outlineLvl>` untuk *Heading 1–3* ke *Navigation Pane*, pembuatan *Dynamic TOC*, dan standarisasi tabel APA 7th Edition (**FR-09 s/d FR-13**).
 
 ### Blok 3 (Evaluasi Metrik, SQA Tier 2 & Active Learning)
 Memvisualisasikan evaluasi komprehensif performa sistem:
 * **Pengukuran Model Klasifikasi NLP:** Akurasi puncak **97,22%**, Macro/Weighted F1-Score **0,97**, serta *Confusion Matrix*.
-* **Audit Fisik SQA Tier 2 (*Artifact Acceptance Gate*):** Verifikasi deterministik terhadap **8 Kriteria Mutu SK Rektor UEU No. 5 Tahun 2018** (Margin 4-3-3-3 cm, ukuran kertas A4, spasi 1.15, header/footer, dan format tabel APA 7) (**FR-14**). Jika ditemukan ketidaksesuaian ($< 100\%$), sistem menjalankan loop remedi otomatis ke *Agent 3*.
-* **Siklus Active Learning Mandiri (*Continuous Retraining*):** Menyimpan sampel koreksi deterministik *Agent 2* ke repositori feedback CSV, memicu pelatihan ulang otomatis saat mencapai $\ge 5$ sampel baru, dan melakukan *hot-reload* model ke memori tanpa *downtime* (**FR-15, NFR-04**).
+* **Audit Fisik SQA Tier 2 (*Artifact Acceptance Gate*):** Verifikasi deterministik terhadap **8 Kriteria Mutu SK Rektor UEU No. 5 Tahun 2018** (Margin 4-3-3-3 cm, ukuran kertas A4, spasi 1.15, header/footer, dan format tabel APA 7) (**FR-14**). Jika ditemukan cacat, *Agent 3* menyusun ulang dokumen; pengulangan dihentikan bila cacat tidak berubah, dan sisa cacat dilaporkan apa adanya kepada pengguna.
+* **Siklus Active Learning (*uncertainty sampling*):** Paragraf ambigu yang tidak dapat dipastikan aturan *Agent 2* ditanyakan kepada pengguna (maks. 20 per dokumen, keyakinan terendah lebih dulu). Setiap $\ge 5$ label manual baru memicu pelatihan ulang dengan **uji non-regresi**: model baru hanya di-*hot-reload* bila macro-F1 pada data uji basis tidak turun. Koreksi otomatis *Agent 2* dicatat sebagai *weak label* tetapi tidak memicu pelatihan, karena terbukti menurunkan macro-F1 (0,920 → 0,694) (**FR-15, NFR-04**).
 
 ### Blok 4 (Output Visual & User Interface)
 Memvisualisasikan antarmuka Web Studio FastAPI (`alat.html` & `alat.js`):
 * Penayangan konsol log eksekusi terminal *real-time* dan status interaksi antar-agen.
-* Kartu skor kepatuhan mutu **SQA Tier 2 = 100% PASS** dengan waktu pemrosesan rata-rata **0,98 detik** (rentang 0,65 – 1,45 detik).
+* Kartu skor kepatuhan mutu SQA Tier 2 (jumlah kriteria lolos dari 8 beserta sisa cacat) dan waktu pemrosesan (0,79 – 1,83 detik pada 5 dokumen uji, 27-10-2026).
+* Kartu konfirmasi paragraf ambigu untuk menjawab kueri *Active Learning*.
 * Tombol unduh instan berkas hasil rekonstruksi yang dinamai otomatis `(Asdoku) - Nama_File.docx` (**FR-16**).
 
 ---
@@ -193,16 +197,16 @@ flowchart LR
     end
 
     subgraph MAS ["2. Eksekusi Tri-Agent & Two-Tier SQA"]
-        B --> C["Agent 1: Inspector<br/>(Random Forest Classifier)"]
-        C <-->|"SQA Tier 1:<br/>5 Guardrails"| D["Agent 2: Quality Critic<br/>(Gatekeeper & Auditor)"]
-        D -->|"Approved<br/>Blueprint"| E["Agent 3: Actuator<br/>(OpenXML Rebuilder)"]
+        B --> C["Agent 1: Inspector<br/>(Random Forest, ML Murni)"]
+        C <-->|"SQA Tier 1:<br/>Koreksi Aturan + Uji Konsistensi"| D["Agent 2: Quality Critic<br/>(Rule-Based Gatekeeper & Auditor)"]
+        D -->|"Approved<br/>Blueprint"| E["Agent 3: Actuator<br/>(OpenXML Zero-Loss)"]
         E <-->|"SQA Tier 2:<br/>8 Kriteria UEU"| D
     end
 
     subgraph EVAL ["3. Evaluasi & Active Learning"]
-        D -. "Koreksi Label" .-> F["Active Learning Pool<br/>(Retrain & Hot-Reload)"]
+        D -. "Kueri Ambigu → Label Manual" .-> F["Active Learning Pool<br/>(Retrain + Uji Non-Regresi)"]
         F -.-> C
-        D --> G["Evaluasi Metrik:<br/>Akurasi 97.22% | SQA 100% PASS"]
+        D --> G["Evaluasi Metrik:<br/>Akurasi 97.22% | Skor SQA 8 Kriteria"]
     end
 
     subgraph OUT ["4. Output & Web UI"]

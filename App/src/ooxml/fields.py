@@ -1,11 +1,15 @@
 """Field dinamis Word (STYLEREF/SEQ), bookmark, dan pencetakan miring istilah asing."""
 
+import copy
 import re
 
 from docx.oxml import parse_xml
-from docx.oxml.ns import nsdecls
+from docx.oxml.ns import nsdecls, qn
+from docx.text.run import Run
 
 from src.ooxml.xml import W_NS, style_run
+
+_XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 
 _CAPTION_RPR = (
     '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>'
@@ -92,23 +96,52 @@ def bookmark_pair(bookmark_id: int, name: str):
     return start, end
 
 
-def italicize_foreign_terms(p) -> None:
-    """Mencetak miring istilah asing dalam paragraf bahasa Indonesia (pedoman EYD)."""
-    full_text = p.text
-    if not full_text or not _FOREIGN_PATTERN.search(full_text):
-        return
+def _plain_text_runs(p_elem):
+    """Run anak langsung paragraf yang hanya berisi satu `w:t` dan berada di luar field.
 
-    segments = []
-    last_idx = 0
-    for match in _FOREIGN_PATTERN.finditer(full_text):
+    Run di dalam hyperlink, content control (sitasi Mendeley Cite), dan hasil field
+    (sitasi Mendeley/Zotero lama) sengaja dilewati agar tidak diubah.
+    """
+    field_depth = 0
+    for r in p_elem.findall(qn("w:r")):
+        fld_char = r.find(qn("w:fldChar"))
+        if fld_char is not None:
+            fld_type = fld_char.get(qn("w:fldCharType"))
+            field_depth += 1 if fld_type == "begin" else -1 if fld_type == "end" else 0
+            continue
+        content = [child for child in r if child.tag != qn("w:rPr")]
+        if field_depth == 0 and len(content) == 1 and content[0].tag == qn("w:t"):
+            yield r
+
+
+def _split_foreign_segments(text: str) -> list:
+    segments, last_idx = [], 0
+    for match in _FOREIGN_PATTERN.finditer(text):
         start, end = match.span()
         if start > last_idx:
-            segments.append((full_text[last_idx:start], False))
-        segments.append((full_text[start:end], True))
+            segments.append((text[last_idx:start], False))
+        segments.append((text[start:end], True))
         last_idx = end
-    if last_idx < len(full_text):
-        segments.append((full_text[last_idx:], False))
+    if last_idx < len(text):
+        segments.append((text[last_idx:], False))
+    return segments
 
-    p.text = ""
-    for text_part, is_foreign in segments:
-        style_run(p.add_run(text_part), 12, bold=False, italic=is_foreign)
+
+def italicize_foreign_terms(p) -> None:
+    """Mencetak miring istilah asing dalam paragraf bahasa Indonesia (pedoman EYD).
+
+    Run dipecah di tempat; format lain (bold, superscript, dsb.) dan elemen non-teks dipertahankan.
+    """
+    for r in list(_plain_text_runs(p._p)):
+        text = r.find(qn("w:t")).text or ""
+        if not _FOREIGN_PATTERN.search(text):
+            continue
+        for text_part, is_foreign in _split_foreign_segments(text):
+            piece = copy.deepcopy(r)
+            t = piece.find(qn("w:t"))
+            t.text = text_part
+            t.set(_XML_SPACE, "preserve")
+            if is_foreign:
+                Run(piece, None).font.italic = True
+            r.addprevious(piece)
+        r.getparent().remove(r)

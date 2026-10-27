@@ -155,17 +155,19 @@ async function processDocument() {
                         const origPred = c.agent1_pred || c.original_pred || '-';
                         const corrTo = c.corrected_to || c.corrected_label || '-';
                         tr.innerHTML = `
-                            <td style="font-family: 'JetBrains Mono'; font-weight: 600; color: var(--text-muted);">P[${pIdx}]</td>
-                            <td style="color: var(--text-heading); font-weight: 500;">"${c.text || ''}"</td>
-                            <td><span style="background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 4px; font-size: 0.72rem; font-weight: 700;">${origPred}</span></td>
-                            <td><span style="background: #dcfce7; color: #166534; padding: 2px 6px; border-radius: 4px; font-size: 0.72rem; font-weight: 700;">${corrTo}</span></td>
-                            <td style="font-size: 0.75rem; color: var(--text-muted);">${c.reason || ''}</td>
+                            <td style="font-family: 'JetBrains Mono'; font-weight: 600; color: var(--text-muted);">P[${escapeHtml(pIdx)}]</td>
+                            <td style="color: var(--text-heading); font-weight: 500;">"${escapeHtml(c.text || '')}"</td>
+                            <td><span style="background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 4px; font-size: 0.72rem; font-weight: 700;">${escapeHtml(origPred)}</span></td>
+                            <td><span style="background: #dcfce7; color: #166534; padding: 2px 6px; border-radius: 4px; font-size: 0.72rem; font-weight: 700;">${escapeHtml(corrTo)}</span></td>
+                            <td style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(c.reason || '')}</td>
                         `;
                         tbody.appendChild(tr);
                     });
                 } else {
                     tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--emerald-text); font-weight: 600; padding: 1rem;">Sempurna! Agent 1 berhasil memprediksi seluruh struktur dengan 0 anomali.</td></tr>`;
                 }
+
+                renderReviewQueue(data.review_queue || []);
 
                 resultsArea.style.display = 'block';
                 resultsArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -179,6 +181,59 @@ async function processDocument() {
                 btn.disabled = false;
                 btnText.style.display = 'inline';
                 btnSpinner.style.display = 'none';
+            }
+        }
+
+        const LABEL_OPTIONS = [
+            "BODY_PARAGRAPH", "SUB_BAB", "JUDUL_BAB", "FRONTMATTER_TITLE", "COVER_METADATA",
+            "CAPTION_GAMBAR", "CAPTION_TABEL", "DAFTAR_PUSTAKA_ITEM", "LAINNYA"
+        ];
+
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+        }
+
+        function renderReviewQueue(queue) {
+            const card = document.getElementById('review-card');
+            const tbody = document.getElementById('review-tbody');
+            tbody.innerHTML = '';
+            card.style.display = queue.length ? 'block' : 'none';
+            document.getElementById('review-count-badge').innerText = `${queue.length} Paragraf`;
+
+            queue.forEach(q => {
+                const tr = document.createElement('tr');
+                const options = LABEL_OPTIONS.map(label =>
+                    `<option value="${label}" ${label === q.predicted_label ? 'selected' : ''}>${label}</option>`).join('');
+                tr.innerHTML = `
+                    <td style="font-family: 'JetBrains Mono'; font-weight: 600; color: var(--text-muted);">P[${escapeHtml(q.idx)}]</td>
+                    <td style="color: var(--text-heading); font-weight: 500;">"${escapeHtml(q.text)}"</td>
+                    <td style="font-size: 0.72rem;"><b>${escapeHtml(q.predicted_label)}</b><br>
+                        <span style="color: var(--text-muted);">yakin ${Math.round(q.confidence * 100)}%</span></td>
+                    <td><select class="review-select" style="width: 100%; font-size: 0.72rem; padding: 3px;">${options}</select></td>
+                    <td><button type="button" class="pill-badge badge-blue" style="border: none; cursor: pointer;">Simpan</button></td>
+                `;
+                const btn = tr.querySelector('button');
+                btn.addEventListener('click', () => submitReview(q, tr.querySelector('select').value, btn));
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function submitReview(q, label, btn) {
+            btn.disabled = true;
+            const form = new FormData();
+            form.append('paragraph_idx', q.idx);
+            form.append('paragraph_text', q.text);
+            form.append('correct_label', label);
+            form.append('review_id', q.review_id);
+            try {
+                const res = await fetch('/api/active-learning/feedback', { method: 'POST', body: form });
+                const body = await res.json();
+                if (!res.ok) throw new Error(body.detail || 'Gagal menyimpan label');
+                btn.innerText = 'Tersimpan';
+                btn.className = 'pill-badge badge-emerald';
+            } catch (err) {
+                btn.disabled = false;
+                alert(err.message);
             }
         }
 
