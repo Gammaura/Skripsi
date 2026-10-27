@@ -100,6 +100,11 @@ _PPR_UNKNOWN_POS = _PPR_ORDER[qn("w:rPr")] - 0.5
 def sort_ppr_children(root) -> None:
     """Mengurutkan ulang anak setiap w:pPr di bawah `root` sesuai skema OOXML (urutan stabil)."""
     for pPr in root.iter(qn("w:pPr")):
+        seen = set()
+        for child in reversed(list(pPr)):  # elemen ganda (mis. dua w:jc) tidak sah; yang terakhir dipakai
+            if child.tag in seen:
+                pPr.remove(child)
+            seen.add(child.tag)
         children = list(pPr)
         ordered = sorted(children, key=lambda child: _PPR_ORDER.get(child.tag, _PPR_UNKNOWN_POS))
         if ordered != children:

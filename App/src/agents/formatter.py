@@ -30,7 +30,7 @@ from src.ooxml.cloning import (
     has_drawing,
     has_rich_content,
 )
-from src.ooxml.fields import add_seq_caption_field, italicize_foreign_terms
+from src.ooxml.fields import add_chapter_seq_marker, add_seq_caption_field, italicize_foreign_terms
 from src.ooxml.numbering import (
     add_restarting_list_num,
     ensure_heading_multilevel_list,
@@ -58,6 +58,14 @@ HEADING_NUM_ID = "1"
 FIRST_CHAPTER_PREFIXES = ("BAB 1", "BAB I", "PENDAHULUAN", "BAB 01")
 KEYWORD_PREFIXES = ("kata kunci", "keywords")
 INTERNAL_ATTRS = ("approved_label", "is_subsub")  # penanda internal, bukan atribut sah OOXML
+
+# Gaya list (disepakati, pedoman 2018 tidak mengatur): nomor sejajar indentasi alinea 1,27 cm,
+# teks +0,63 cm, baris lanjutan sejajar teks (hanging indent); tiap tingkat masuk 0,63 cm.
+LIST_HANGING = 360
+LIST_TEXT_LEFT = {1: 1080, 2: 1440, 3: 1800}
+# Penomoran yang diketik manual: '1.', '1)', '(1)', 'a.', 'a)', atau butir '•', '-'
+MANUAL_LIST_RE = re.compile(r"^\s*(\(\d{1,2}\)|\d{1,2}[.)]|[a-z][.)]|[•●▪○\-–])(?=[\s\u00a0])")
+_SEPARATOR_CHARS = " \t\u00a0"
 
 # (teks label, regex prefiks, spasi sebelum, spasi sesudah) dalam dxa
 _CAPTION_STYLES = {
@@ -88,6 +96,7 @@ class _BuildState:
     caption_counts: Dict[str, int] = field(default_factory=lambda: {"CAPTION_GAMBAR": 0, "CAPTION_TABEL": 0})
     src_to_out_num_id: Dict[str, str] = field(default_factory=dict)
     pending_chapter_title_run: Any = None  # run judul 'BAB X' tanpa judul, diisi baris judul berikutnya
+    last_list_level: int = 0  # tingkat list paragraf sebelumnya (0 = bukan list)
 
     @property
     def caption_bab(self) -> int:
@@ -203,9 +212,19 @@ class FormattingActuatorAgent:
         if frontmatter_sect_pr is not None and first_chapter is not None:
             siblings = list(first_chapter._p.getparent())
             preceding = siblings[:siblings.index(first_chapter._p)]
-            last_para = next((el for el in reversed(preceding) if el.tag == qn("w:p")), None)
-            if last_para is not None:
-                pPr = last_para.get_or_add_pPr()
+            block_tags = (qn("w:p"), qn("w:tbl"), qn("w:sdt"))
+            last_block = next((el for el in reversed(preceding) if el.tag in block_tags), None)
+            if last_block is not None:
+                carrier = last_block
+                if last_block.tag != qn("w:p"):
+                    # sectPr hanya boleh di paragraf: bila halaman awal diakhiri Daftar Isi/Gambar native
+                    # (w:sdt) atau tabel, paragraf pembawa disisipkan setelahnya agar blok itu tidak
+                    # terlempar ke section Bab Isi (halaman terpisah & terhitung halaman Latin).
+                    carrier = w_el("p", inner='<w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>')
+                    last_block.addnext(carrier)
+                pPr = carrier.find(qn("w:pPr"))
+                if pPr is None:
+                    pPr = carrier.get_or_add_pPr()
                 remove_child(pPr, "w:sectPr")
                 pPr.append(copy.deepcopy(frontmatter_sect_pr))
 
@@ -277,6 +296,7 @@ class FormattingActuatorAgent:
         state.current_bab += 1
         state.caption_counts = {kind: 0 for kind in state.caption_counts}
         state.src_to_out_num_id.clear()
+        state.last_list_level = 0
         has_own_title = bool(title)
         if not title:
             title = "PENDAHULUAN" if state.current_bab == 1 else f"BAB {to_roman(state.current_bab)}"
@@ -297,10 +317,12 @@ class FormattingActuatorAgent:
         style_run(line_break_run, 14, bold=True, black=False)
         title_run = p.add_run(title.upper())
         style_run(title_run, 14, bold=True)
+        add_chapter_seq_marker(p)
         state.pending_chapter_title_run = None if has_own_title else title_run
 
     def _render_subchapter(self, state: _BuildState, item: Dict[str, Any], _p_src) -> None:
         state.src_to_out_num_id.clear()
+        state.last_list_level = 0
         text = item.get("text", "").strip()
         is_subsub = bool(item.get("metadata", {}).get("is_subsub") or SUBSUB_NUMBER_RE.match(text))
         level, style, space_before = ("2", "Heading 3", 160) if is_subsub else ("1", "Heading 2", 240)
@@ -368,16 +390,68 @@ class FormattingActuatorAgent:
             p, pPr = self._new_paragraph(state.doc_out, "BODY_PARAGRAPH")
             style_run(p.add_run(text), 12)
 
-        if src_num_pr is not None:
-            replace_child(pPr, num_pr_el(self._list_level(src_num_pr), self._output_list_num_id(state, src_num_pr)))
+        level = self._list_depth(state, text, src_num_pr)
+        if level:
+            if src_num_pr is not None:
+                replace_child(pPr, num_pr_el(self._list_level(src_num_pr), self._output_list_num_id(state, src_num_pr)))
+            else:
+                self._normalize_list_separator(p._p)
+            left = LIST_TEXT_LEFT[level]
+            replace_child(pPr, w_el("tabs", inner=f'<w:tab w:val="left" w:pos="{left}"/>'))
             replace_child(pPr, _jc("both"))
             replace_child(pPr, spacing_el(0, 60, 276))
-            replace_child(pPr, _ind(left=720, hanging=360))
+            replace_child(pPr, _ind(left=left, hanging=LIST_HANGING))
         else:
             replace_child(pPr, _jc("both"))
             replace_child(pPr, spacing_el(0, 120, 276))
             replace_child(pPr, _ind(left=0, right=0, first_line=720))
+        state.last_list_level = level
         italicize_foreign_terms(p)
+
+    @staticmethod
+    def _list_depth(state: _BuildState, text: str, src_num_pr) -> int:
+        """Tingkat list 1-3 (0 bila bukan list) dari numbering Word asli atau penomoran ketik manual."""
+        if src_num_pr is not None:
+            return min(int(FormattingActuatorAgent._list_level(src_num_pr)) + 1, 3)
+        match = MANUAL_LIST_RE.match(text)
+        if match is None:
+            return 0
+        marker = match.group(1)
+        if marker[0].isdigit() or marker.startswith("("):
+            return 1
+        if marker[0].isalpha():
+            return 2
+        return min(state.last_list_level + 1, 3) if state.last_list_level else 1  # butir di bawah list bernomor
+
+    @staticmethod
+    def _normalize_list_separator(p_elem) -> None:
+        """'1.<spasi/Tab berlebih>Teks' -> '1.<Tab>Teks' agar teks tepat di indentasi gantung."""
+        inline = [el for el in p_elem.iter(qn("w:t"), qn("w:tab")) if el.tag == qn("w:tab") or el.text]
+        first = next((i for i, el in enumerate(inline) if el.tag == qn("w:t") and el.text.strip()), None)
+        if first is None:
+            return
+        first_t = inline[first]
+        match = MANUAL_LIST_RE.match(first_t.text)
+        if match is None:
+            return
+        rest = first_t.text[match.end():].lstrip(_SEPARATOR_CHARS)
+        first_t.text = match.group(1)
+        if rest:
+            rest_t = copy.deepcopy(first_t)
+            rest_t.text = rest
+            rest_t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            first_t.addnext(rest_t)
+        else:
+            for el in inline[first + 1:]:  # pemisah berada di run berikutnya
+                if el.tag == qn("w:tab"):
+                    el.getparent().remove(el)
+                    continue
+                stripped = el.text.lstrip(_SEPARATOR_CHARS)
+                if stripped:
+                    el.text = stripped
+                    break
+                el.getparent().remove(el)
+        first_t.addnext(w_el("tab"))
 
     @staticmethod
     def _list_level(src_num_pr) -> str:

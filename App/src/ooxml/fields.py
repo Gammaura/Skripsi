@@ -1,4 +1,4 @@
-"""Field dinamis Word (STYLEREF/SEQ), bookmark, dan pencetakan miring istilah asing."""
+"""Field dinamis Word (SEQ), bookmark, dan pencetakan miring istilah asing."""
 
 import copy
 import re
@@ -76,10 +76,23 @@ def _field_runs(instruction: str, display_value) -> list:
     ]
 
 
+CHAPTER_SEQ = "BAB"
+
+
+def add_chapter_seq_marker(p) -> None:
+    """Penanda tersembunyi '{SEQ BAB \\h}' pada judul bab: sumber nomor bab berangka Arab untuk caption.
+
+    STYLEREF ke judul bab menghasilkan 'III' karena penomoran bab memakai Romawi (pedoman 2018),
+    sedangkan caption harus 'Tabel 3.1'.
+    """
+    for run in _field_runs(f" SEQ {CHAPTER_SEQ} \\h ", ""):
+        p._p.append(run)
+
+
 def add_seq_caption_field(p, seq_name: str, bab_num: int, item_num: int, title_text: str) -> None:
-    """Menyisipkan '{STYLEREF 1 \\s}.{SEQ <seq_name> \\* ARABIC \\s 1}' lalu judul caption."""
+    """Menyisipkan '{SEQ BAB \\c}.{SEQ <seq_name> \\* ARABIC \\s 1}' lalu judul caption."""
     runs = (
-        _field_runs(" STYLEREF 1 \\s ", bab_num)
+        _field_runs(f" SEQ {CHAPTER_SEQ} \\c \\* ARABIC ", bab_num)
         + [_caption_run("<w:t>.</w:t>")]
         + _field_runs(f" SEQ {seq_name} \\* ARABIC \\s 1 ", item_num)
     )
