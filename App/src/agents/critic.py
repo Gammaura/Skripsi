@@ -55,6 +55,7 @@ NOTE_PREFIXES = ("CATATAN", "NOTE", "SUMBER", "SOURCE", "KETERANGAN", "DIMANA")
 FORMULA_OPERATORS = (" = ", " / ", " * ", " + ", " \\approx ", " \\pm ", " \\sum ")
 METRIC_FORMULA_KEYS = ("Accuracy =", "Precision =", "Recall =", "F1-Score =", "F1 =", "MAE =", "MSE =", "RMSE =", "Loss =")
 SENTENCE_ENDINGS = (".", ":", ";", "!", "?", ",")
+TITLE_CASE_SMALL_WORDS = {"dan", "atau", "yang", "di", "ke", "dari", "pada", "untuk", "dengan", "terhadap", "dalam", "of", "the", "and"}
 
 REVIEW_QUEUE_SIZE = 20  # jumlah maksimum kueri Active Learning per dokumen
 SISTEMATIKA_WINDOW = 15
@@ -69,6 +70,10 @@ EQUATION_NUMBER_RE = re.compile(r"\(\d+\.\d+\)\s*$")
 VARIABLE_ITEM_RE = re.compile(r"^[a-zA-Zα-ωΑ-Ω0-9_\u2080-\u2089,\s\t]{1,20}\s*[:=]\s*")
 SOURCE_NOTE_RE = re.compile(r"^(Sumber|Source|Catatan|Note)\s*[:=]", re.IGNORECASE)
 NUMBERED_LIST_RE = re.compile(r"^(\d+|[a-zA-Z])[\.\)]\s*")
+# Judul poin bernomor ('1. Kontribusi Teori') yang diikuti paragraf penjelasan -> sub-sub-bab
+POINT_HEADING_RE = re.compile(r"^\d{1,2}\.\s+(\S.*)$")
+MAX_POINT_HEADING_WORDS = 8
+MIN_EXPLANATION_WORDS = 8
 CITATION_RES = (re.compile(r"^\([^\)]+,\s*\d{4}[a-z]?\)$"), re.compile(r"^[A-Z][a-zA-Z\s\.,\-]+\s*\(\d{4}[a-z]?\)\."))
 CAPTION_WORD_RE = re.compile(r"^(Gambar|Figure|Tabel|Table)\b", re.IGNORECASE)
 CAPTION_NUMBER_RE = re.compile(r"^(?:Gambar|Figure|Tabel|Table)\s*(\d+)[\.\-](\d+)", re.IGNORECASE)
@@ -176,8 +181,10 @@ class _StructureAuditor:
         self.formula_legend_count = 0
         self.awaiting_chapter_title = False
 
-    def audit(self, item: Dict[str, Any], next_item: Optional[Dict[str, Any]], pred: str) -> Tuple[str, Optional[str]]:
-        """Label akhir & alasan untuk satu paragraf; `pred` = label masukan (rule prior atau prediksi ML)."""
+    def audit(self, item: Dict[str, Any], next_item: Optional[Dict[str, Any]], pred: str,
+              next_content: Optional[Dict[str, Any]] = None) -> Tuple[str, Optional[str]]:
+        """Label akhir & alasan untuk satu paragraf; `pred` = label masukan (rule prior atau prediksi ML),
+        `next_content` = paragraf berteks berikutnya (melewati paragraf kosong)."""
         s = _extract_signals(item, next_item)
         meta = item["metadata"]
         final = pred
@@ -203,8 +210,12 @@ class _StructureAuditor:
 
         is_title_line = self._is_chapter_title_line(s, inferred_bab)
         meta["chapter_title_continuation"] = is_title_line
+        is_point_heading = not is_title_line and self._is_point_heading(s, item, next_content)
         if is_title_line:
             decision = (LABEL_CHAPTER, None if pred == LABEL_CHAPTER else "Teks adalah judul Bab yang ditulis di baris terpisah setelah 'BAB X'.")
+        elif is_point_heading:
+            meta["is_subsub"] = True
+            decision = (LABEL_SUBCHAPTER, "Judul poin bernomor yang diikuti paragraf penjelasan dijadikan Sub-Sub-Bab (mis. 1.4.1).")
         else:
             decision = self._decide(s, item, pred, inferred_bab, is_real_chapter, is_variable_item)
         meta["is_bibliography"] = self.in_bibliography and decision is not None and decision[0] == LABEL_BODY
@@ -241,6 +252,25 @@ class _StructureAuditor:
         self.active_heading2 = False
         literal = BAB_LITERAL_RE.match(s.upper_np)
         self.awaiting_chapter_title = bool(literal) and not s.upper_np[literal.end():].strip(" :.-")
+
+    def _is_point_heading(self, s: _Signals, item: Dict[str, Any], next_content: Optional[Dict[str, Any]]) -> bool:
+        """'1. Kontribusi Teori' (pendek, tebal/berformat judul, tanpa tanda baca kalimat) di dalam sub-bab
+        yang diikuti paragraf penjelasan, bukan butir list lain (rumusan masalah/tujuan tetap list)."""
+        if (self.last_bab < 1 or not self.active_heading2 or self.in_bibliography
+                or self.in_sistematika or self.in_formula_legend or next_content is None):
+            return False
+        match = POINT_HEADING_RE.match(s.stripped)
+        if match is None:
+            return False
+        title = match.group(1).strip()
+        words = title.split()
+        if len(words) > MAX_POINT_HEADING_WORDS or title.endswith(SENTENCE_ENDINGS):
+            return False
+        is_title_case = all(w[0].isupper() for w in words if w.lower() not in TITLE_CASE_SMALL_WORDS and w[0].isalpha())
+        if not (item["raw_features"].get("is_bold") or is_title_case):
+            return False
+        next_text = next_content["text"].strip()
+        return not NUMBERED_LIST_RE.match(next_text) and len(next_text.split()) >= MIN_EXPLANATION_WORDS
 
     def _is_chapter_title_line(self, s: _Signals, inferred_bab: int) -> bool:
         """Baris judul tepat setelah 'BAB X' tanpa judul, mis. 'BAB I' lalu 'PENDAHULUAN'."""
@@ -415,10 +445,11 @@ class QualityCriticAgent:
 
         for idx, item in enumerate(paragraphs):
             next_item = paragraphs[idx + 1] if idx + 1 < len(paragraphs) else None
+            next_content = next((p for p in paragraphs[idx + 1:] if p["text"].strip()), None)
             ml_pred = item["predicted_label"]
             # Tahap 1: rule prior per paragraf; Tahap 2: rantai audit konteks dokumen
             prior = rule_prior_label(item["raw_features"])
-            final, reason = auditor.audit(item, next_item, prior[0] if prior else ml_pred)
+            final, reason = auditor.audit(item, next_item, prior[0] if prior else ml_pred, next_content)
             if reason is None and prior and prior[0] == final:
                 reason = f"Aturan baku UEU: {prior[1]}"
             if final != ml_pred and item["text"].strip():

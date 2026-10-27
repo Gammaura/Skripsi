@@ -66,6 +66,10 @@ LIST_TEXT_LEFT = {1: 1080, 2: 1440, 3: 1800}
 # Penomoran yang diketik manual: '1.', '1)', '(1)', 'a.', 'a)', atau butir '•', '-'
 MANUAL_LIST_RE = re.compile(r"^\s*(\(\d{1,2}\)|\d{1,2}[.)]|[a-z][.)]|[•●▪○\-–])(?=[\s\u00a0])")
 _SEPARATOR_CHARS = " \t\u00a0"
+# Rumusan hipotesis ('HA1:', 'H1 :', 'H0:'): label menggantung di 1,27 cm, pernyataan di 2,54 cm
+HYPOTHESIS_RE = re.compile(r"^\s*(H[A-Za-z0]?\d{0,2}\s*[:.])(?=[\s\u00a0])")
+HYPOTHESIS_TEXT_LEFT = 1440
+HYPOTHESIS_HANGING = 720
 
 # (teks label, regex prefiks, spasi sebelum, spasi sesudah) dalam dxa
 _CAPTION_STYLES = {
@@ -391,7 +395,13 @@ class FormattingActuatorAgent:
             style_run(p.add_run(text), 12)
 
         level = self._list_depth(state, text, src_num_pr)
-        if level:
+        if not level and src_num_pr is None and HYPOTHESIS_RE.match(text):
+            self._normalize_list_separator(p._p, HYPOTHESIS_RE)
+            replace_child(pPr, w_el("tabs", inner=f'<w:tab w:val="left" w:pos="{HYPOTHESIS_TEXT_LEFT}"/>'))
+            replace_child(pPr, _jc("both"))
+            replace_child(pPr, spacing_el(0, 120, 276))
+            replace_child(pPr, _ind(left=HYPOTHESIS_TEXT_LEFT, hanging=HYPOTHESIS_HANGING))
+        elif level:
             if src_num_pr is not None:
                 replace_child(pPr, num_pr_el(self._list_level(src_num_pr), self._output_list_num_id(state, src_num_pr)))
             else:
@@ -424,14 +434,14 @@ class FormattingActuatorAgent:
         return min(state.last_list_level + 1, 3) if state.last_list_level else 1  # butir di bawah list bernomor
 
     @staticmethod
-    def _normalize_list_separator(p_elem) -> None:
+    def _normalize_list_separator(p_elem, marker_re=MANUAL_LIST_RE) -> None:
         """'1.<spasi/Tab berlebih>Teks' -> '1.<Tab>Teks' agar teks tepat di indentasi gantung."""
         inline = [el for el in p_elem.iter(qn("w:t"), qn("w:tab")) if el.tag == qn("w:tab") or el.text]
         first = next((i for i, el in enumerate(inline) if el.tag == qn("w:t") and el.text.strip()), None)
         if first is None:
             return
         first_t = inline[first]
-        match = MANUAL_LIST_RE.match(first_t.text)
+        match = marker_re.match(first_t.text)
         if match is None:
             return
         rest = first_t.text[match.end():].lstrip(_SEPARATOR_CHARS)
