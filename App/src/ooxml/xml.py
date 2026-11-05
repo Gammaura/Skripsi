@@ -128,3 +128,23 @@ def normalize_run_fonts(p_elem, size_pt: float, *, black: bool = True) -> None:
         is_note_ref = r.find(qn("w:footnoteReference")) is not None or r.find(qn("w:endnoteReference")) is not None
         if is_note_ref and run.font.superscript is None:
             run.font.superscript = True
+
+
+_STYLE_REF_TAGS = (qn("w:pStyle"), qn("w:rStyle"), qn("w:tblStyle"))
+_STYLED_PART_SUFFIXES = ("/document.xml", "/footnotes.xml", "/endnotes.xml")
+
+
+def drop_undefined_style_refs(doc) -> int:
+    """Hapus rujukan style yang tidak didefinisikan di styles.xml (mis. 'Compact' dari pandoc yang
+    ikut tersalin zero-loss). Word memperlakukannya sebagai Normal, tetapi panel Styles menampilkan
+    nama yang tidak ada; menghapus rujukan membuat paragraf kembali ke style dasar secara eksplisit."""
+    defined = {style.style_id for style in doc.styles}
+    removed = 0
+    for part in doc.part.package.iter_parts():
+        if not str(part.partname).endswith(_STYLED_PART_SUFFIXES) or not hasattr(part, "element"):
+            continue
+        for ref in list(part.element.iter(*_STYLE_REF_TAGS)):
+            if ref.get(qn("w:val")) not in defined:
+                ref.getparent().remove(ref)
+                removed += 1
+    return removed

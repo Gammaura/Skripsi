@@ -42,6 +42,7 @@ from src.ooxml.tables import format_table
 from src.ooxml.text import SUBSUB_NUMBER_RE, strip_bab_prefix, strip_subbab_number, to_roman, to_title_case
 from src.ooxml.toc import generate_table_of_contents, retarget_caption_list_fields
 from src.ooxml.xml import (
+    drop_undefined_style_refs,
     normalize_run_fonts,
     num_pr_el,
     remove_child,
@@ -137,6 +138,7 @@ class FormattingActuatorAgent:
         ensure_heading_multilevel_list(numbering)
         normalize_template_bab_level(numbering)
         sort_level_children(numbering)
+        sort_ppr_children(numbering)  # w:pPr di dalam w:lvl (mis. w:tabs sebelum w:ind)
 
         has_frontmatter = self._has_frontmatter(doc_src)
         frontmatter_sect_pr, body_sect_pr = self._capture_section_properties(doc_out)
@@ -160,6 +162,8 @@ class FormattingActuatorAgent:
         self._copy_other_body_elements(state)
         generate_table_of_contents(doc_out, has_frontmatter=has_frontmatter)
         self._apply_section_properties(doc_out, frontmatter_sect_pr, body_sect_pr)
+        self._hide_cover_header(doc_out)
+        drop_undefined_style_refs(doc_out)
         self._strip_internal_attributes(doc_out)
         sort_ppr_children(doc_out.element.body)
 
@@ -235,6 +239,28 @@ class FormattingActuatorAgent:
         body = doc_out.element.body
         remove_child(body, "w:sectPr")
         body.append(copy.deepcopy(body_sect_pr))
+
+    @staticmethod
+    def _hide_cover_header(doc_out) -> None:
+        """Pedoman UEU 2018 Bab IV butir E-F: halaman judul tidak diberi nomor (tetap dihitung) dan header
+        "Universitas Esa Unggul" dimulai dari abstrak. Halaman pertama section bagian awal memakai
+        header/footer kosong (w:titlePg) bila dokumen diawali sampul, yaitu terdapat metadata sampul
+        sebelum judul halaman awal/bab pertama (judul sampul sendiri kerap berlabel paragraf isi)."""
+        sections = doc_out.sections
+        if len(sections) < 2:
+            return
+        has_cover = False
+        for p in doc_out.paragraphs:
+            label = p._p.get("approved_label")
+            if label in ("FRONTMATTER_TITLE", "JUDUL_BAB"):
+                break
+            has_cover = has_cover or label == "COVER_METADATA"
+        if not has_cover:
+            return
+        cover_section = sections[0]
+        cover_section.different_first_page_header_footer = True
+        cover_section.first_page_header.is_linked_to_previous = False
+        cover_section.first_page_footer.is_linked_to_previous = False
 
     @staticmethod
     def _strip_internal_attributes(doc_out) -> None:

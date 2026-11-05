@@ -17,6 +17,7 @@ from src.agents.inspector import InspectorAgent  # noqa: E402
 from src.agents.critic import QualityCriticAgent  # noqa: E402
 from src.agents.formatter import FormattingActuatorAgent  # noqa: E402
 from src.ooxml.numbering import _LVL_ORDER  # noqa: E402
+from src.ooxml.tables import _TBLPR_ORDER, _TCPR_ORDER  # noqa: E402
 from src.ooxml.xml import _PPR_ORDER, _PPR_UNKNOWN_POS  # noqa: E402
 
 INPUT_DIR = "data/dokumen_uji"
@@ -51,6 +52,32 @@ def _ooxml_structure_issues(path: str) -> list:
            and lvl.find(qn("w:pStyle")).get(qn("w:val")).startswith("Heading")
            for lvl in doc.part.numbering_part.element.iter(qn("w:lvl"))):
         issues.append("w:lvlRestart pada level heading (nomor sub-bab hilang di Word)")
+    for tag, order in (("w:tblPr", _TBLPR_ORDER), ("w:tcPr", _TCPR_ORDER)):
+        rank = {qn(f"w:{name}"): i for i, name in enumerate(order)}
+        if any([rank.get(c.tag, len(order)) for c in el] != sorted(rank.get(c.tag, len(order)) for c in el)
+               for el in doc.element.body.iter(qn(tag))):
+            issues.append(f"urutan {tag} tidak sesuai skema (Word dapat menolak membuka berkas)")
+    rels = doc.part.rels
+    r_id = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+    r_embed = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
+    blip = "{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
+    wrong_rel = [el.get(r_id) for el in doc.element.body.iter(qn("w:hyperlink"))
+                 if el.get(r_id) and (el.get(r_id) not in rels or not rels[el.get(r_id)].reltype.endswith("/hyperlink"))]
+    wrong_rel += [el.get(r_embed) for el in doc.element.body.iter(blip)
+                  if el.get(r_embed) and (el.get(r_embed) not in rels or not rels[el.get(r_embed)].reltype.endswith("/image"))]
+    if wrong_rel:
+        issues.append(f"rujukan relasi salah sasaran (Word menolak membuka berkas): {sorted(set(wrong_rel))}")
+    defined = {style.style_id for style in doc.styles}
+    undefined = {ref.get(qn("w:val")) for ref in doc.element.body.iter(qn("w:pStyle"), qn("w:rStyle"), qn("w:tblStyle"))
+                 if ref.get(qn("w:val")) not in defined}
+    if undefined:
+        issues.append(f"rujukan style tidak terdefinisi: {sorted(undefined)}")
+    has_toc_title = any(p.text.strip().upper() == "DAFTAR ISI" for p in doc.paragraphs)
+    # Daftar Isi dinamis: field TOC berbasis heading (\\o outline atau \\t daftar style), bukan daftar caption (\\c)
+    has_toc_field = any((it.text or "").strip().startswith("TOC") and "\\c" not in (it.text or "")
+                        for it in doc.element.body.iter(qn("w:instrText")))
+    if has_toc_title and not has_toc_field:
+        issues.append("Daftar Isi berupa teks statis (tanpa field TOC), tidak dapat diperbarui Word")
     return issues
 
 

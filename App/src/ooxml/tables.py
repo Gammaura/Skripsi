@@ -10,15 +10,39 @@ from src.ooxml.xml import replace_child, style_run, w_el
 _THICK = 'w:val="single" w:sz="8" w:space="0" w:color="000000"'
 _THIN = 'w:val="single" w:sz="4" w:space="0" w:color="000000"'
 
+# Urutan garis mengikuti skema OOXML (top, left, bottom, right, insideH, insideV); Word menolak
+# membuka dokumen untuk kombinasi urutan tertentu ("The file appears to be corrupted").
 _APA7_TABLE_BORDERS = (
-    f"<w:top {_THICK}/><w:bottom {_THICK}/>"
-    '<w:left w:val="none"/><w:right w:val="none"/>'
+    f'<w:top {_THICK}/><w:left w:val="none"/><w:bottom {_THICK}/><w:right w:val="none"/>'
     f'<w:insideH {_THIN}/><w:insideV w:val="none"/>'
 )
-_HEADER_CELL_BORDERS = f'<w:top {_THICK}/><w:bottom {_THICK}/><w:left w:val="none"/><w:right w:val="none"/>'
-_NO_TOP_SIDES = '<w:top w:val="none"/><w:left w:val="none"/><w:right w:val="none"/>'
-_LAST_ROW_CELL_BORDERS = f"{_NO_TOP_SIDES}<w:bottom {_THICK}/>"
-_BODY_ROW_CELL_BORDERS = f"{_NO_TOP_SIDES}<w:bottom {_THIN}/>"
+_HEADER_CELL_BORDERS = f'<w:top {_THICK}/><w:left w:val="none"/><w:bottom {_THICK}/><w:right w:val="none"/>'
+_LAST_ROW_CELL_BORDERS = f'<w:top w:val="none"/><w:left w:val="none"/><w:bottom {_THICK}/><w:right w:val="none"/>'
+_BODY_ROW_CELL_BORDERS = f'<w:top w:val="none"/><w:left w:val="none"/><w:bottom {_THIN}/><w:right w:val="none"/>'
+
+_TBLPR_ORDER = ("tblStyle", "tblpPr", "tblOverlap", "bidiVisual", "tblStyleRowBandSize", "tblStyleColBandSize",
+                "tblW", "jc", "tblCellSpacing", "tblInd", "tblBorders", "shd", "tblLayout", "tblCellMar",
+                "tblLook", "tblCaption", "tblDescription", "tblPrChange")
+_TCPR_ORDER = ("cnfStyle", "tcW", "gridSpan", "hMerge", "vMerge", "tcBorders", "shd", "noWrap", "tcMar",
+               "textDirection", "tcFitText", "vAlign", "hideMark", "headers", "cellIns", "cellDel", "cellMerge",
+               "tcPrChange")
+
+
+def _sort_children(element, order) -> None:
+    """Urutkan anak elemen sesuai skema; elemen yang tidak dikenal diletakkan di akhir."""
+    if element is None:
+        return
+    rank = {qn(f"w:{name}"): i for i, name in enumerate(order)}
+    children = sorted(element, key=lambda child: rank.get(child.tag, len(order)))
+    for child in children:
+        element.remove(child)
+        element.append(child)
+
+
+def _sort_table_properties(table) -> None:
+    _sort_children(table._tbl.tblPr, _TBLPR_ORDER)
+    for tc in table._tbl.iter(qn("w:tc")):
+        _sort_children(tc.find(qn("w:tcPr")), _TCPR_ORDER)
 
 _MATERAI_WIDTH_DXA = "2835"   # ~5.0 cm
 _MATERAI_INDENT_DXA = "4076"  # ~7.19 cm, sejajar kanan titik dua
@@ -58,6 +82,7 @@ def format_materai_box(table) -> None:
         for cell in row.cells:
             replace_child(cell._tc.get_or_add_tcPr(), w_el("tcW", {"w": _MATERAI_WIDTH_DXA, "type": "dxa"}))
             _format_cell_paragraphs(cell, center=True)
+    _sort_table_properties(table)
 
 
 def format_table_apa7(table) -> None:
@@ -89,6 +114,7 @@ def format_table_apa7(table) -> None:
             trPr.append(w_el("cantSplit"))
         if r_idx == 0 and trPr.find(qn("w:tblHeader")) is None:
             trPr.append(w_el("tblHeader"))
+    _sort_table_properties(table)
 
 
 def format_table(table) -> None:

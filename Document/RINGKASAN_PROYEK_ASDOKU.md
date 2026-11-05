@@ -1,4 +1,4 @@
-# ASDOKU (Asisten Dokumen Akademik UEU)
+# ASDOKU (Asisten Dokumenku)
 ## Dokumentasi Arsitektur, Fitur, Alur Kerja Multi-Agent System, dan Status Terkini Proyek
 
 > **Penyusun:** Tim Riset Asdoku  
@@ -37,7 +37,7 @@
 
 ## 1. Eksekutif & Latar Belakang Proyek
 
-**Asdoku** (*Asisten Dokumen Akademik*) adalah sistem berbasis **Multi-Agent System (MAS)** dan **Machine Learning OpenXML** yang dirancang khusus untuk memecahkan permasalahan ketidakpatuhan format dokumen akademik (Skripsi, Tugas Akhir, Proposal, dan Laporan Kerja Praktik/Magang) di lingkungan **Universitas Esa Unggul (UEU)**.
+**Asdoku** (*Asisten Dokumenku*) adalah sistem berbasis **Multi-Agent System (MAS)** dan **Machine Learning OpenXML** yang dirancang khusus untuk memecahkan permasalahan ketidakpatuhan format dokumen akademik (Skripsi, Tugas Akhir, Proposal, dan Laporan Kerja Praktik/Magang) di lingkungan **Universitas Esa Unggul (UEU)**.
 
 ### Permasalahan Nyata Mahasiswa & Dosen Pembimbing:
 1. **Format Acak-acakan:** Mahasiswa sering menyalin-tempel teks dari berbagai sumber sehingga jenis font, spasi baris, dan margin menjadi tidak beraturan.
@@ -219,12 +219,12 @@ graph TD
   - **Daftar Pustaka APA:** Entri daftar pustaka diberi *hanging indent* 1,27 cm.
   - **Sanitasi Total Template:** Membersihkan seluruh properti cacat bawaan template Word (menghapus `<w:numPr>` yang dapat memicu penomoran ganda, mereset indentasi liar).
   - **Rekonstruksi Cover Presisi:** Menyusun ulang halaman sampul sesuai spesifikasi baku Fasilkom UEU (Judul 14 pt ALL CAPS Center, Logo Resmi UEU 3 cm, Nama & NIM 12 pt Bold Center, Tahun 14 pt).
-  - **Multi-Section Division (3 Seksi Terisolasi):**
-    - Section 0: Cover (Tanpa header, tanpa nomor halaman).
-    - Section 1: Bagian Awal / Frontmatter (Header UEU kanan atas, nomor halaman Romawi kecil tengah bawah).
+  - **Pembagian Section (2 section):**
+    - Section 1: Sampul + Bagian Awal. Halaman pertama (sampul/halaman judul) memakai header/footer kosong (`w:titlePg`): tidak bernomor tetapi tetap dihitung (i), sesuai Pedoman 2018 Bab IV butir E–F. Halaman berikutnya ber-header UEU kanan atas dan bernomor Romawi kecil tengah bawah (Lembar Pengesahan = ii).
     - Section 2: Batang Tubuh / Isi Bab (Header UEU kanan atas, nomor halaman Latin tengah bawah mulai dari 1).
   - **Penetapan Heading 1, 2, 3 Resmi:** Menyuntikkan tag XML `<w:outlineLvl>` sehingga dokumen langsung terintegrasi dengan Navigation Pane MS Word.
-  - **Dynamic Table of Contents:** Menyuntikkan field dinamis Word (`TOC \o "1-3"`, `TOC \c "Gambar"`, `TOC \c "Tabel"`) dengan tab leader titik-titik rapi.
+  - **Daftar Isi/Tabel/Gambar sebagai Field Word:** Entri dibungkus field `TOC \o "1-3" \h \z \u`, `TOC \h \z \c "Tabel"`, dan `TOC \h \z \c "Gambar"`. Nomor halaman awal berupa estimasi (hasil tersimpan field); `w:updateFields` membuat Word menawarkan pembaruan saat dokumen dibuka sehingga nomor halaman menjadi tepat, dan daftar dapat diperbarui kapan pun (F9). Sebelum Sesi 30 daftar ditulis sebagai teks statis.
+  - **Salinan Tabel/Blok Zero-Loss dengan Relasi Dipindahkan:** Tabel dan blok `w:sdt` disalin bersama gambar, gambar VML, hyperlink, dan catatan kaki; rujukan relasi (`r:id`) dipetakan ulang ke dokumen hasil (Sesi 30: hyperlink di dalam tabel sebelumnya menunjuk part yang salah dan membuat Word menolak membuka berkas).
   - **Format Tabel APA 7:** Menghapus seluruh border vertikal tabel dan hanya menyisakan 3 garis horizontal utama (Top, Bottom, dan Header separator).
 
 ### 3.4. Active Learning & Continuous Self-Improvement Loop
@@ -292,7 +292,8 @@ Asdoku mengimplementasikan sistem penjaminan mutu dua tingkat (**Two-Tier SQA**)
 
 ### 5.3. Otomatisasi Dynamic Table of Contents (TOC)
 * Menyisipkan entri Daftar Isi, Daftar Gambar, dan Daftar Tabel dengan dot leaders rapi selebar 14 cm.
-* Menyematkan field Word dinamis dan mengaktifkan `<w:updateFields w:val="true"/>`, sehingga ketika file dibuka di Microsoft Word, seluruh nomor halaman langsung sinkron otomatis.
+* Entri dibungkus field Word dinamis (`TOC`) dan `<w:updateFields w:val="true"/>` diaktifkan, sehingga Word menawarkan pembaruan field saat file dibuka; setelah diperbarui, nomor halaman sesuai halaman sebenarnya.
+* Style `toc 1–3` dan `table of figures` pada template diseragamkan (Times New Roman 12 pt, spasi 1,15, indentasi 0,5 cm per tingkat, tab titik di 14 cm) agar tampilan tidak berubah setelah diperbarui.
 
 ### 5.4. Tabel Standar APA 7 & Tipografi Paripurna
 * Semua tabel diatur rata tengah (*center*) dengan lebar kolom proporsional.

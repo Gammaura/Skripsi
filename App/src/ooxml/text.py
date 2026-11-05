@@ -30,16 +30,37 @@ def to_roman(n: int) -> str:
     return result
 
 
+def _is_acronym(word: str) -> bool:
+    """Kata dengan >= 2 huruf kapital (OOXML, TF-IDF, KF-01, [ISI:) dianggap singkatan."""
+    return sum(ch.isupper() for ch in word) >= 2
+
+
+def _capitalize(word: str) -> str:
+    """Kapitalisasi huruf alfabet pertama: '(mockup' -> '(Mockup' (str.capitalize gagal bila diawali tanda baca)."""
+    for i, ch in enumerate(word):
+        if ch.isalpha():
+            return word[:i] + ch.upper() + word[i + 1:].lower()
+    return word
+
+
 def to_title_case(text: str) -> str:
-    """Title Case bahasa Indonesia: kata sambung kecil, kata ber-tanda hubung dikapitalisasi per bagian."""
+    """Title Case bahasa Indonesia: kata sambung kecil, kata ber-tanda hubung dikapitalisasi per bagian.
+
+    Bila judul tidak diketik kapital seluruhnya, singkatan (OOXML, TF-IDF, TA-2) dipertahankan.
+    Judul yang seluruhnya kapital ("LATAR BELAKANG") tetap dikonversi karena singkatan tidak
+    dapat dibedakan dari kata biasa.
+    """
+    keep_acronyms = text != text.upper()
     words = []
     for idx, word in enumerate(text.split()):
-        if "-" in word:
-            words.append("-".join(part.capitalize() for part in word.split("-")))
+        if keep_acronyms and _is_acronym(word):
+            words.append(word)
+        elif "-" in word:
+            words.append("-".join(_capitalize(part) for part in word.split("-")))
         elif idx > 0 and word.lower() in _TITLE_SMALL_WORDS:
             words.append(word.lower())
         else:
-            words.append(word.capitalize())
+            words.append(_capitalize(word))
     return " ".join(words)
 
 

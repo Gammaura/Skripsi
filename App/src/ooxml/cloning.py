@@ -109,30 +109,37 @@ def append_to_body(doc_out, element, after=None) -> None:
         body.append(element)
 
 
-def clone_paragraph(p_src_elem, doc_src, doc_out, label: str):
-    """Deep-clone paragraf apa adanya (termasuk gambar, VML, hyperlink) ke akhir dokumen output."""
-    clone = copy.deepcopy(p_src_elem)
-    clone.set("approved_label", label)
+def _rehome(element, doc_src, doc_out):
+    """Deep-clone elemen sumber dan pindahkan semua rujukan relasinya (gambar, VML, hyperlink,
+    catatan kaki) ke dokumen output. rId tidak boleh dibawa apa adanya: di dokumen output rId yang
+    sama dapat menunjuk part lain (mis. hyperlink rId10 menjadi header1.xml) sehingga Word menolak
+    membuka berkas ("The file appears to be corrupted")."""
+    clone = copy.deepcopy(element)
     _remap_images(clone, doc_src, doc_out, include_vml=True)
     _remap_hyperlinks(clone, doc_src, doc_out)
     _copy_notes(clone, doc_src, doc_out)
     _remove_comment_marks(clone)
+    return clone
+
+
+def clone_paragraph(p_src_elem, doc_src, doc_out, label: str):
+    """Deep-clone paragraf apa adanya (termasuk gambar, VML, hyperlink) ke akhir dokumen output."""
+    clone = _rehome(p_src_elem, doc_src, doc_out)
+    clone.set("approved_label", label)
     append_to_body(doc_out, clone)
     return clone
 
 
 def clone_table(tbl_src_elem, doc_src, doc_out, after=None):
-    """Deep-clone tabel beserta gambar di dalam selnya."""
-    clone = copy.deepcopy(tbl_src_elem)
-    _remap_images(clone, doc_src, doc_out)
+    """Deep-clone tabel beserta isi selnya (gambar, hyperlink, catatan kaki)."""
+    clone = _rehome(tbl_src_elem, doc_src, doc_out)
     append_to_body(doc_out, clone, after=after)
     return clone
 
 
 def clone_body_element(element, doc_src, doc_out, after=None):
     """Deep-clone elemen body non-paragraf/non-tabel (mis. w:sdt) setelah `after` atau ke akhir dokumen."""
-    clone = copy.deepcopy(element)
-    _remap_images(clone, doc_src, doc_out)
+    clone = _rehome(element, doc_src, doc_out)
     append_to_body(doc_out, clone, after=after)
     return clone
 

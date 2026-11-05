@@ -920,3 +920,41 @@ Berdasarkan hasil uji coba pengguna (`rapi_1791911204_...docx`), ditemukan anoma
 * Di Word, P2 menampilkan BAB I → 1.1–1.4 → BAB II → 2.1 … 2.3.1. P3 menampilkan BAB I (halaman 1) → 1.1–1.4.3 → caption Tabel 1.1, daftar 1,27/1,9 cm, dan hipotesis 1,27/2,54 cm.
 * Koreksi Agent 2 bertambah karena aturan judul poin: P3 42 → 45, P4 76 → 83. Label lain tidak berubah.
 * Commit pada branch `refactor/audit-mas-zero-loss`: `7d8feb9`, `4894f46`, `01bfd92`.
+
+---
+
+### Sesi 30: Uji Nyata pada Naskah Proposal, Berkas Rusak di Word, dan Daftar Isi Dinamis
+**Tanggal:** 5 November 2026  
+**Status:** Selesai (diverifikasi di Microsoft Word; P1–P5 lolos 8/8 SQA, validasi skema OOXML, dan pemeriksaan struktur)
+
+#### 1. Konteks:
+Naskah proposal tugas akhir peneliti (draf Markdown → pandoc → `.docx`) dijadikan dokumen uji ke-6. Hasilnya diperiksa di Microsoft Word melalui otomasi COM, sehingga muncul cacat yang tidak tertangkap uji SQA.
+
+#### 2. Temuan:
+1. **P4 tidak dapat dibuka di Word** ("The file appears to be corrupted"), padahal lolos SQA (python-docx tetap dapat membacanya). Dilacak dengan memotong isi dokumen hingga satu elemen: tabel profil perusahaan berisi hyperlink yang membawa `r:id` dari naskah sumber (`rId10`); di dokumen hasil `rId10` menunjuk `header1.xml`. `clone_table` dan `clone_body_element` hanya memetakan ulang gambar, tidak hyperlink, gambar VML, maupun catatan kaki.
+2. **Daftar Isi/Tabel/Gambar berupa teks statis** dengan nomor halaman estimasi (26 baris per halaman), bukan field Word, sehingga tidak dapat diperbarui (F9). Bertentangan dengan dokumentasi sebelumnya.
+3. **Halaman sampul ikut ber-header** "Universitas Esa Unggul" dan bernomor (pedoman: halaman judul tidak bernomor, header mulai abstrak).
+4. **Urutan elemen tidak sesuai skema**: anak `w:tblPr`/`w:tcPr` dan garis tepi tabel APA, `w:updateFields` di akhir `settings.xml`, `w:bookmarkStart` sebelum `w:pPr` pada judul halaman awal, dan `w:tabs` setelah `w:ind` di `numbering.xml`.
+5. **Title Case merusak singkatan** pada heading/caption: OOXML → Ooxml, TF-IDF → Tf-Idf, PBB-P2 → Pbb-P2, "(mockup" tidak dikapitalisasi.
+6. **Butir daftar menjadi sub-bab palsu** bila diawali nama sub-bab baku (mis. "Pengujian fungsional: black-box testing …").
+7. **Template** `template_clean_ueu.docx` tidak lolos validasi skema dan memuat 25 style sisa LibreOffice (ListLabel 1–20, Index, Heading, Default, Normal2) yang tampil di galeri Styles; paragraf hasil menyimpan rujukan style yang tidak terdefinisi (Compact, SourceCode, Table1, dll.).
+
+#### 3. Perbaikan:
+* `cloning.py`: satu fungsi `_rehome` untuk paragraf, tabel, dan blok `w:sdt` (gambar, VML, hyperlink, catatan kaki, komentar).
+* `toc.py`: entri daftar dibungkus field `TOC \o "1-3" \h \z \u`, `TOC \h \z \c "Tabel"`, `TOC \h \z \c "Gambar"`; `w:updateFields` diaktifkan pada posisi sesuai skema; bookmark disisipkan setelah `w:pPr`.
+* `formatter.py`: halaman pertama section bagian awal memakai header/footer kosong (`w:titlePg`) bila terdapat metadata sampul sebelum judul halaman awal/bab; rujukan style tak terdefinisi dihapus; `w:pPr` di `numbering.xml` diurutkan.
+* `tables.py`: garis tepi dan anak `w:tblPr`/`w:tcPr` ditulis sesuai urutan skema.
+* `text.py`: singkatan (≥ 2 huruf kapital) dipertahankan bila judul tidak seluruhnya kapital; kapitalisasi huruf alfabet pertama setelah tanda baca.
+* `critic.py`: nama sub-bab baku tidak dianggap judul bila diikuti uraian setelah titik dua atau diakhiri tanda akhir kalimat.
+* Template dibersihkan dengan `App/tools/clean_template.py` (urutan skema, `suff="nothing"`, 25 style dihapus, style `toc 1–3`/`table of figures` diseragamkan).
+* `tests/test_all_documents.py`: pemeriksaan baru untuk urutan `w:tblPr`/`w:tcPr`, rujukan relasi salah sasaran, rujukan style tak terdefinisi, dan Daftar Isi statis. Kontrol negatif: hasil versi lama tertangkap (P4: `rId10`, urutan tabel, Daftar Isi statis; P2/P4/P5: style tak terdefinisi).
+
+#### 4. Hasil:
+* P1–P5: 8/8 SQA, jumlah koreksi Agent 2 tidak berubah (13, 97, 45, 83, 23), validasi skema OOXML lolos seluruhnya (sebelumnya gagal).
+* Microsoft Word: kelima dokumen terbuka (P4 sebelumnya rusak), 106/106 nomor sub-bab tampil, Daftar Isi/Tabel/Gambar dapat diperbarui, sampul tanpa header pada P1, P2, P4, P5 (P3 tidak bersampul).
+* Uji A/B Title Case: struktur dan label P1–P5 identik; hanya penulisan singkatan pada judul yang berubah.
+
+#### 5. Pekerjaan Proposal (di luar kode):
+* Draf proposal 5 bab mengikuti panduan Fakultas (`Document/Proposal_TA/`), Bab II landasan teori, 5 penelitian terdahulu Indonesia terverifikasi, pedoman anotasi 9 kelas (Lampiran 1), formulir izin naskah (Lampiran 4), kuesioner studi pendahuluan, serta diagram Kerangka Berpikir, Kerangka Pemikiran, dan Tahapan Penelitian (draw.io).
+* Kepanjangan Asdoku ditetapkan "Asisten Dokumenku".
+* Pertanyaan terbuka: spasi pedoman 2018 (0/0 pt) berbeda dengan formatter (6 pt; 12/6 pt sub-bab) — menunggu konfirmasi template fakultas terbaru.

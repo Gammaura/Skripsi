@@ -133,6 +133,20 @@ def _is_formula(text: str, meta: Dict[str, Any]) -> bool:
     return has_operator and bool(re.search(r"\(\d+(\.\d+)?\)", text) or any(k in text for k in METRIC_FORMULA_KEYS))
 
 
+def _is_standard_subchapter(stripped: str, upper_np: str, word_count: int) -> bool:
+    """Diawali nama sub-bab baku UEU dan berbentuk judul, bukan kalimat.
+
+    'Pengujian fungsional: black-box testing terhadap KF-01.' diawali nama sub-bab baku tetapi
+    merupakan butir penjelasan: ada uraian setelah titik dua atau diakhiri tanda akhir kalimat.
+    """
+    if word_count > 10 or not upper_np.startswith(SUBCHAPTER_TITLES):
+        return False
+    _, colon, after_colon = upper_np.partition(":")
+    if colon and after_colon.strip():
+        return False
+    return not stripped.endswith((".", "!", "?"))
+
+
 def _extract_signals(item: Dict[str, Any], next_item: Optional[Dict[str, Any]]) -> _Signals:
     text = item["text"]
     stripped = text.strip()
@@ -157,7 +171,7 @@ def _extract_signals(item: Dict[str, Any], next_item: Optional[Dict[str, Any]]) 
         is_numbered_list=bool(NUMBERED_LIST_RE.match(stripped)) and not SUBCHAPTER_NUMBER_RE.match(stripped) and not style.startswith("Heading"),
         is_citation=any(regex.match(stripped) for regex in CITATION_RES),
         is_numbered_sub=bool(SUBCHAPTER_NUMBER_RE.match(stripped)),
-        is_standard_sub=word_count <= 10 and upper_np.startswith(SUBCHAPTER_TITLES),
+        is_standard_sub=_is_standard_subchapter(stripped, upper_np, word_count),
         followed_by_chapter_description=next_text.startswith(CHAPTER_DESCRIPTION_OPENERS),
     )
 

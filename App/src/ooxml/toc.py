@@ -59,10 +59,11 @@ class _TocCollector:
         self.bookmark_counter += 1
         return name
 
-    def _bookmark(self, p, after_ppr: bool = False) -> str:
+    def _bookmark(self, p) -> str:
+        """bookmarkStart disisipkan setelah w:pPr: w:pPr wajib menjadi anak pertama w:p."""
         name = self.next_bookmark_name()
         start, end = bookmark_pair(self.bookmark_counter, name)
-        pPr = p._p.find(qn("w:pPr")) if after_ppr else None
+        pPr = p._p.find(qn("w:pPr"))
         if pPr is not None:
             pPr.addnext(start)
         else:
@@ -156,7 +157,7 @@ class _TocCollector:
             return
         self.seen_captions.add(title)
         page = str(self.body_page if self.in_body else 1)
-        self.caption_entries[label].append((title, page, self._bookmark(p, after_ppr=True), 0))
+        self.caption_entries[label].append((title, page, self._bookmark(p), 0))
 
 
 # (label SEQ caption Agent 3, petunjuk nama style/label caption pada instruksi TOC naskah sumber)
@@ -191,10 +192,27 @@ def retarget_caption_list_fields(element) -> int:
     return changed
 
 
+# Elemen settings.xml yang menurut skema berada SETELAH w:updateFields.
+_SETTINGS_AFTER_UPDATE_FIELDS = (
+    "hdrShapeDefaults", "footnotePr", "endnotePr", "compat", "docVars", "rsids", "mathPr", "attachedSchema",
+    "themeFontLang", "clrSchemeMapping", "doNotIncludeSubdocsInStats", "doNotAutoCompressPictures",
+    "forceUpgrade", "captions", "readModeInkLockDown", "smartTagType", "schemaLibrary", "shapeDefaults",
+    "doNotEmbedSmartTags", "decimalSymbol", "listSeparator",
+)
+
+
 def _enable_update_fields(doc) -> None:
+    """Word menawarkan pembaruan field saat dokumen dibuka; disisipkan pada posisi sesuai skema."""
     settings = doc.settings.element
-    if settings.find(qn("w:updateFields")) is None:
-        settings.append(w_el("updateFields", {"val": "true"}))
+    if settings.find(qn("w:updateFields")) is not None:
+        return
+    element = w_el("updateFields", {"val": "true"})
+    after = {qn(f"w:{name}") for name in _SETTINGS_AFTER_UPDATE_FIELDS}
+    anchor = next((child for child in settings if child.tag in after), None)
+    if anchor is None:
+        settings.append(element)
+    else:
+        anchor.addprevious(element)
 
 
 def _is_native_heading_toc(sdt) -> bool:
@@ -231,7 +249,7 @@ def _find_list_title(doc, title: str) -> Optional[Paragraph]:
     return None
 
 
-def _add_toc_item(doc, before_p, entry: TocEntry) -> None:
+def _add_toc_item(doc, before_p, entry: TocEntry) -> Paragraph:
     """Menyisipkan satu baris daftar (teks + tab leader titik + nomor halaman) sebelum `before_p`."""
     text, page, _bookmark_name, indent_level = entry
     p = before_p.insert_paragraph_before()
@@ -254,6 +272,35 @@ def _add_toc_item(doc, before_p, entry: TocEntry) -> None:
     style_run(p.add_run(text), 12, bold=False)
     p.add_run("\t")
     style_run(p.add_run(page), 12, bold=False)
+    return p
+
+
+# Instruksi field per daftar. Entri estimasi menjadi hasil tersimpan (cached result) field,
+# sehingga daftar langsung tampil dan menjadi tepat begitu Word memperbarui field.
+_LIST_FIELD_INSTRUCTIONS = {
+    "DAFTAR ISI": ' TOC \\o "1-3" \\h \\z \\u ',
+    "DAFTAR TABEL": ' TOC \\h \\z \\c "Tabel" ',
+    "DAFTAR GAMBAR": ' TOC \\h \\z \\c "Gambar" ',
+}
+
+
+def _wrap_in_toc_field(paragraphs: List[Paragraph], instruction: str) -> None:
+    """Membungkus paragraf entri dengan satu complex field TOC (begin di entri pertama, end di
+    entri terakhir) agar daftar dapat diperbarui Word (F9 / Update Field)."""
+    first, last = paragraphs[0]._p, paragraphs[-1]._p
+    begin = [
+        w_el("r", inner='<w:fldChar w:fldCharType="begin"/>'),
+        w_el("r", inner=f'<w:instrText xml:space="preserve">{instruction}</w:instrText>'),
+        w_el("r", inner='<w:fldChar w:fldCharType="separate"/>'),
+    ]
+    anchor = first.find(qn("w:pPr"))
+    for run in begin:
+        if anchor is None:
+            first.insert(0, run)
+        else:
+            anchor.addnext(run)
+        anchor = run
+    last.append(w_el("r", inner='<w:fldChar w:fldCharType="end"/>'))
 
 
 def _create_list_title(anchor_p, title: str) -> Paragraph:
@@ -356,9 +403,10 @@ def generate_table_of_contents(doc, has_frontmatter: bool = True) -> None:
         _style_list_title(doc, title_p, page_break=has_frontmatter or title != "DAFTAR ISI")
 
         insert_before = anchor_bab_p if was_created else _clear_old_list_body(title_p)
-        if insert_before is not None:
-            for entry in entries:
-                _add_toc_item(doc, insert_before, entry)
+        if insert_before is not None and entries:
+            items = [_add_toc_item(doc, insert_before, entry) for entry in entries]
+            _wrap_in_toc_field(items, _LIST_FIELD_INSTRUCTIONS[title])
 
-    # Tanpa updateFields agar Word tidak memunculkan dialog peringatan field saat dibuka
-    remove_child(doc.settings.element, "w:updateFields")
+    # Nomor halaman entri adalah estimasi; updateFields membuat Word menawarkan pembaruan saat
+    # dokumen dibuka sehingga Daftar Isi/Tabel/Gambar memakai nomor halaman sebenarnya.
+    _enable_update_fields(doc)
