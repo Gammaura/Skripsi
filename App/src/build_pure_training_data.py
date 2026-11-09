@@ -1,18 +1,12 @@
 """
-Modul Pembuat Dataset Training Murni (Pure Ground-Truth)
-Khusus Mengekstrak dari 4 Berkas Emas: Dataset Asdoku 1 s/d 4.
+Aturan pra-label paragraf (zona naskah + label berbasis aturan).
+Dipakai tools/label_excel.py untuk mengisi tebakan awal label di Excel sebelum dikoreksi.
 Standar Acuan: SK Rektor UEU No. 5 Tahun 2018.
 """
 
-import csv
-import os
 import re
-from collections import Counter
-from typing import Any, Dict, List
+from typing import Any, Dict
 
-from docx import Document
-
-from src.paragraph_features import extract_paragraph_features
 
 FRONTMATTER_TITLES = [
     "HALAMAN PERNYATAAN KEASLIAN", "PERNYATAAN KEASLIAN",
@@ -40,15 +34,6 @@ CAPTION_GAMBAR_RE = re.compile(r'^(Gambar|Figure)\s+(\d+[\.\-]\d+|\.|\d+).*', re
 CAPTION_TABEL_RE = re.compile(r'^(Tabel|Table)\s+(\d+[\.\-]\d+|\.|\d+).*', re.IGNORECASE)
 BAB_RE = re.compile(r'^(BAB\s+[IVX\d]+|BAB\s+\d+)', re.IGNORECASE)
 SUBCHAPTER_NUMBER_RE = re.compile(r'^\d+\.\d+(\.\d+)?\s+')
-
-TARGET_FILES = [
-    ("Dataset Asdoku/Dataset Asdoku 1.docx", "ASDOKU_1_TEMPLATE_UTUH"),
-    ("Dataset Asdoku/Dataset Asdoku 2.docx", "ASDOKU_2_TOC_HEADINGS"),
-    ("Dataset Asdoku/Dataset Asdoku 3.docx", "ASDOKU_3_FIGURES_TOF"),
-    ("Dataset Asdoku/Dataset Asdoku 4.docx", "ASDOKU_4_TABLES_TOT"),
-]
-OUTPUT_CSV = "data/dataset_skripsi.csv"
-
 
 def _next_zone(zone: str, upper: str) -> str:
     if upper in FRONTMATTER_ZONE_TRIGGERS:
@@ -90,40 +75,3 @@ def _label(f: Dict[str, Any], zone: str) -> str:
         return "DAFTAR_PUSTAKA_ITEM"
     # Paragraf isi, list rincian, code, math
     return "BODY_PARAGRAPH"
-
-
-def extract_and_label_document(docx_path: str, doc_id: str) -> List[Dict[str, Any]]:
-    paragraphs = Document(docx_path).paragraphs
-    total = len(paragraphs)
-    zone = "COVER"
-    items = []
-    for idx, p in enumerate(paragraphs):
-        features = extract_paragraph_features(p, idx, total)
-        zone = _next_zone(zone, features["text"].upper())
-        items.append({"doc_id": doc_id, **features, "label": _label(features, zone)})
-    return items
-
-
-def main():
-    all_samples = []
-    for filepath, doc_id in TARGET_FILES:
-        if os.path.exists(filepath):
-            print(f"Mengekstrak berkas emas: {filepath}...")
-            samples = extract_and_label_document(filepath, doc_id)
-            print(f"  -> {len(samples)} baris diekstraksi.")
-            all_samples.extend(samples)
-
-    with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(all_samples[0].keys()))
-        writer.writeheader()
-        writer.writerows(all_samples)
-    print(f"\n[SUKSES] Dataset training murni berhasil disimpan ke: {OUTPUT_CSV} ({len(all_samples)} baris)")
-
-    print("\n--- DISTRIBUSI KELAS TRAINING MURNI ASDOKU ---")
-    for label, count in Counter(s["label"] for s in all_samples).most_common():
-        print(f"  {label:22s}: {count:4d} baris")
-    print("-----------------------------------------------\n")
-
-
-if __name__ == "__main__":
-    main()

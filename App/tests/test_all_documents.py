@@ -1,6 +1,6 @@
 """
 Test Suite Pengujian Otomatis Sistem Multi-Agent (MAS) Asdoku
-Menguji 5 Dokumen Uji Resmi (P1 - P5) dari data/dokumen_uji/
+Menguji 4 Dokumen Uji Resmi (P1-P3, P5; P4 laporan magang dikeluarkan karena di luar lingkup TA) dari data/dokumen_uji/
 """
 
 import os
@@ -26,7 +26,6 @@ TEST_DOCS = [
     ("P1", "P1_Template_Resmi_UEU.docx", "Template Resmi Tugas Akhir UEU"),
     ("P2", "P2_Skripsi_Mbkm_Dhicky.docx", "Skripsi MBKM Mandiri Dhicky"),
     ("P3", "P3_Proposal_Bab1_3_PBB.docx", "Naskah Proposal Bab I-III"),
-    ("P4", "P4_Laporan_Mbkm_Arditya.docx", "Laporan MBKM Arditya"),
     ("P5", "P5_Buku_TA_Landscape.docx", "Template Buku TA Section Landscape"),
 ]
 RULE = "=" * 75

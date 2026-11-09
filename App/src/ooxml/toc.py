@@ -34,6 +34,7 @@ _CAPTION_KINDS = {
 
 # (judul, nomor halaman, nama bookmark, level indentasi)
 TocEntry = Tuple[str, str, str, int]
+TOC_BOOKMARK_ID_BASE = 800000
 
 
 @dataclass
@@ -62,7 +63,9 @@ class _TocCollector:
     def _bookmark(self, p) -> str:
         """bookmarkStart disisipkan setelah w:pPr: w:pPr wajib menjadi anak pertama w:p."""
         name = self.next_bookmark_name()
-        start, end = bookmark_pair(self.bookmark_counter, name)
+        # id di rentang terpisah: id kecil sudah dipakai bookmark naskah sumber yang ikut tersalin
+        # (cross-reference _Ref), dan id ganda membuat Word membuang salah satu bookmark.
+        start, end = bookmark_pair(TOC_BOOKMARK_ID_BASE + self.bookmark_counter, name)
         pPr = p._p.find(qn("w:pPr"))
         if pPr is not None:
             pPr.addnext(start)
@@ -350,8 +353,25 @@ def _clear_old_list_body(title_p) -> Optional[Paragraph]:
         )
         if is_boundary:
             return candidate
-        parent.remove(elem)
+        if _is_old_list_entry(candidate):
+            parent.remove(elem)  # teks lain (mis. petunjuk template) dipertahankan: tidak menghapus isi diam-diam
     return None
+
+
+_PAGE_NUMBER_TAIL_RE = re.compile(r"\t\s*(\d{1,3}|[ivxlc]{1,6})\s*$", re.IGNORECASE)
+
+
+def _is_old_list_entry(p: Paragraph) -> bool:
+    """Baris daftar lama: kosong, bergaya TOC/Table of Figures, berisi field (PAGEREF/TOC), atau diakhiri tab+nomor halaman."""
+    text = p.text
+    if not text.strip() or p._p.get("approved_label") == TOC_LABEL:
+        return True
+    style = (p.style.name or "").lower() if p.style is not None else ""
+    if style.startswith("toc") or style == "table of figures":
+        return True
+    if any(True for _ in p._p.iter(qn("w:instrText"))) or any(True for _ in p._p.iter(qn("w:fldSimple"))):
+        return True
+    return bool(_PAGE_NUMBER_TAIL_RE.search(text))
 
 
 def _missing_list_entries(collector: _TocCollector) -> List[TocEntry]:
@@ -377,17 +397,18 @@ def generate_table_of_contents(doc, has_frontmatter: bool = True) -> None:
     for p in doc.paragraphs:
         collector.visit(p)
 
-    if _find_native_toc(doc) is not None:
+    has_native_toc = _find_native_toc(doc) is not None
+    if has_native_toc:
         print("[Agent 3 - Formatter Actuator] Dokumen memiliki Native Word TOC (w:sdt). Mempertahankan 100% blok TOC asli...")
-        _enable_update_fields(doc)
-        return
 
     anchor_bab_p = _find_first_chapter(doc)
     toc_entries = collector.toc_entries
     first_bab_idx = next((i for i, e in enumerate(toc_entries) if e[0].startswith("BAB ")), len(toc_entries))
     toc_entries[first_bab_idx:first_bab_idx] = _missing_list_entries(collector)
 
-    targets = [("DAFTAR ISI", toc_entries)]
+    # Daftar Isi native dipertahankan; Daftar Tabel/Gambar manual di luar blok native tetap dibangun
+    # ulang, karena baris lamanya merujuk bookmark caption sumber yang tidak ada lagi ("Error! Bookmark").
+    targets = [] if has_native_toc else [("DAFTAR ISI", toc_entries)]
     for title, label in (("DAFTAR TABEL", "CAPTION_TABEL"), ("DAFTAR GAMBAR", "CAPTION_GAMBAR")):
         if collector.caption_entries[label]:
             targets.append((title, collector.caption_entries[label]))
@@ -396,7 +417,7 @@ def generate_table_of_contents(doc, has_frontmatter: bool = True) -> None:
         title_p = _find_list_title(doc, title)
         was_created = title_p is None
         if was_created:
-            if not entries or anchor_bab_p is None:
+            if not entries or anchor_bab_p is None or has_native_toc:
                 continue
             title_p = _create_list_title(anchor_bab_p, title)
 

@@ -57,6 +57,6 @@ def candidate_models(seed: int = 42) -> Dict[str, BaseEstimator]:
     """Tiga model pembanding dengan penanganan ketimpangan kelas yang setara."""
     return {
         MODEL_LOGREG: LogisticRegression(max_iter=1000, random_state=seed, C=1.0, class_weight="balanced"),
-        MODEL_RF: RandomForestClassifier(n_estimators=100, random_state=seed, max_depth=14, class_weight="balanced"),
+        MODEL_RF: RandomForestClassifier(n_estimators=300, random_state=seed, class_weight="balanced_subsample", n_jobs=-1),
         MODEL_XGB: BalancedXGBClassifier(random_state=seed),
     }

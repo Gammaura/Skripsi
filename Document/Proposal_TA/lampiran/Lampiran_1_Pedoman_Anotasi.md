@@ -1,6 +1,6 @@
 # LAMPIRAN 1 — PEDOMAN ANOTASI STRUKTUR PARAGRAF NASKAH TUGAS AKHIR
 
-> Versi 1.0 (5 November 2026). Pedoman ini digunakan untuk memberi label manual pada setiap paragraf dalam korpus penelitian. Label yang dihasilkan menjadi acuan kebenaran (*ground truth*) untuk melatih dan menguji sistem Asdoku. Setiap perubahan pedoman dicatat pada Bagian 7.
+> Versi 1.1 (9 November 2026). Pedoman ini digunakan untuk memberi label manual pada setiap paragraf dalam korpus penelitian. Label yang dihasilkan menjadi acuan kebenaran (*ground truth*) untuk melatih dan menguji sistem Asdoku. Setiap perubahan pedoman dicatat pada Bagian 7.
 
 ---
 
@@ -13,7 +13,7 @@ Pedoman ini memastikan bahwa dua anotator yang berbeda memberi label yang sama p
 1. **Satu baris pada lembar kerja = satu paragraf Word**, yaitu teks di antara dua penekanan tombol *Enter*. Satu kalimat yang terpotong menjadi dua paragraf tetap dianotasi sebagai dua baris.
 2. Paragraf kosong tetap muncul pada lembar kerja dan wajib diberi label.
 3. Isi sel tabel, *header*, *footer*, catatan kaki, dan kotak teks **tidak** termasuk unit anotasi. Lembar kerja hanya memuat paragraf badan dokumen.
-4. Blok Daftar Isi otomatis Word (*field* TOC) tidak termasuk unit anotasi. Daftar isi yang **diketik manual** termasuk unit anotasi (lihat Kasus Batas K10).
+4. Baris Daftar Isi/Tabel/Gambar, baik otomatis (*field* TOC) maupun diketik manual, termasuk unit anotasi dan diberi label `LAINNYA` (lihat Kasus Batas K10). Daftar Isi yang tersimpan di dalam *content control* Word tidak muncul pada lembar kerja.
 
 ## 3. Kelas Label
 
@@ -67,7 +67,7 @@ Pedoman ini memastikan bahwa dua anotator yang berbeda memberi label yang sama p
 
 **Bukan:**
 - Baris di sub-bab Sistematika Penulisan seperti "BAB I PENDAHULUAN: Bab ini berisi latar belakang …" adalah `BODY_PARAGRAPH`, karena kalimat itu **menjelaskan** bab, bukan membuka bab.
-- Entri "BAB I Pendahuluan ……… 1" pada daftar isi manual adalah `BODY_PARAGRAPH` (lihat K10).
+- Entri "BAB I Pendahuluan ……… 1" pada daftar isi adalah `LAINNYA` (lihat K10).
 
 ### 4.4 `SUB_BAB`
 
@@ -131,7 +131,8 @@ Pedoman ini memastikan bahwa dua anotator yang berbeda memberi label yang sama p
 **Definisi:** Paragraf yang tidak memiliki peran isi, terutama:
 
 - paragraf kosong (termasuk yang hanya berisi spasi, tab, atau pemisah halaman tanpa teks);
-- sisa teks yang jelas bukan bagian naskah, misalnya teks petunjuk template yang lupa dihapus ("[Tulis judul di sini]").
+- sisa teks yang jelas bukan bagian naskah, misalnya teks petunjuk template yang lupa dihapus ("[Tulis judul di sini]");
+- baris Daftar Isi, Daftar Tabel, dan Daftar Gambar (K10).
 
 **Bukan:** Paragraf yang hanya berisi gambar adalah `BODY_PARAGRAPH` (K7).
 
@@ -139,7 +140,7 @@ Pedoman ini memastikan bahwa dua anotator yang berbeda memberi label yang sama p
 
 Jika ragu, tanyakan pertanyaan berikut **berurutan** dan berhenti pada jawaban "ya" yang pertama:
 
-1. Apakah paragraf kosong (tanpa teks dan tanpa gambar)? → `LAINNYA`
+1. Apakah paragraf kosong (tanpa teks dan tanpa gambar), atau baris Daftar Isi/Tabel/Gambar? → `LAINNYA`
 2. Apakah paragraf berada di halaman sampul atau halaman judul? → `COVER_METADATA`
 3. Apakah paragraf diawali "Gambar/Tabel + nomor", pendek, dan **menamai** gambar/tabel (bukan kalimat yang membahasnya)? → `CAPTION_GAMBAR` / `CAPTION_TABEL`
 4. Apakah paragraf membuka sebuah bab utama? → `JUDUL_BAB`
@@ -161,7 +162,7 @@ Jika ragu, tanyakan pertanyaan berikut **berurutan** dan berhenti pada jawaban "
 | K7 | Paragraf yang hanya berisi gambar, termasuk logo di sampul | `BODY_PARAGRAPH` | Konvensi sistem: paragraf gambar diformat sebagai isi |
 | K8 | Isian "Nama :", "NIM :", "Kata kunci :" pada lembar pengesahan/abstrak | `BODY_PARAGRAPH` | Isian formulir, bukan identitas sampul |
 | K9 | Rumus, keterangan variabel, dan kode program | `BODY_PARAGRAPH` | Isi tulisan |
-| K10 | Daftar isi/tabel/gambar yang diketik manual ("1.1 Latar Belakang ……… 2") | `BODY_PARAGRAPH` | Entri daftar, bukan judul; nomor di awal tidak menjadikannya sub-bab |
+| K10 | Baris daftar isi/tabel/gambar, otomatis maupun diketik manual ("1.1 Latar Belakang ……… 2") | `LAINNYA` | Entri daftar, bukan judul maupun isi: sistem tidak memformatnya sebagai paragraf isi, tetapi menggantinya dengan daftar otomatis. Nomor di awal tidak menjadikannya sub-bab |
 | K11 | Hipotesis berlabel ("H1: Terdapat pengaruh …") | `BODY_PARAGRAPH` | Isi tulisan |
 | K12 | Judul bagian tanpa nomor di dalam bab yang dicetak tebal, misalnya "Manfaat Praktis" | `SUB_BAB` | Berfungsi sebagai judul bagian |
 | K13 | Kalimat pendek tebal di dalam paragraf yang **tidak** diikuti isi bagian (penekanan) | `BODY_PARAGRAPH` | Penekanan, bukan judul |
@@ -172,7 +173,7 @@ Jika ragu, tanyakan pertanyaan berikut **berurutan** dan berhenti pada jawaban "
 
 ## 7. Prosedur Anotasi
 
-1. **Pra-label.** Sistem mengisi kolom `label_awal` dengan tebakan otomatis. Kolom ini hanya bantuan dan **tidak boleh diterima tanpa diperiksa**.
+1. **Pra-label.** Sistem mengisi kolom `Label Awal` dengan tebakan otomatis dan menyalinnya ke kolom `Label` sebagai titik awal. Tebakan ini hanya bantuan dan **tidak boleh diterima tanpa diperiksa**.
 2. **Pemeriksaan.** Anotator membuka naskah asli di Microsoft Word berdampingan dengan lembar kerja, memeriksa **setiap** baris, dan mengisi kolom `label_manual` dari daftar pilihan (*dropdown*). Kolom `label_manual` wajib terisi untuk semua baris, termasuk baris yang sudah benar.
 3. **Catatan.** Baris yang membuat anotator ragu ditandai pada kolom `ragu` dan diberi alasan pada kolom `catatan`.
 4. **Anotator kedua.** Minimal 20% paragraf (dipilih per dokumen, bukan per paragraf acak) dianotasi ulang oleh anotator kedua **tanpa melihat** label anotator pertama dan tanpa kolom `label_awal`.
@@ -183,16 +184,19 @@ Jika ragu, tanyakan pertanyaan berikut **berurutan** dan berhenti pada jawaban "
 | Versi | Tanggal | Perubahan |
 |---|---|---|
 | 1.0 | 5 November 2026 | Versi awal |
+| 1.1 | 9 November 2026 | K10: baris daftar isi/tabel/gambar (otomatis maupun manual) menjadi `LAINNYA`, bukan `BODY_PARAGRAPH`, dan daftar otomatis ikut dianotasi. Alasan: sistem tidak memformat baris daftar sebagai isi, melainkan menggantinya dengan daftar otomatis, sehingga memberinya label isi akan menilai sistem dengan konvensi yang tidak dipakainya. Diputuskan sebelum anotasi manual dimulai. Format lembar kerja disesuaikan dengan alat `tools/label_excel.py` (Bagian 8). |
 
 ## 8. Format Lembar Kerja
 
+Lembar kerja dibuat oleh `App/tools/label_excel.py buat`: satu berkas Excel per naskah (`<bagian>__<kode>.xlsx`), sheet **Paragraf** dan sheet **Daftar Label**.
+
 | Kolom | Isi | Diisi oleh |
 |---|---|---|
-| `doc_id` | Kode naskah anonim (misalnya TA01, PR03) | Sistem |
-| `para_id` | Nomor urut paragraf | Sistem |
-| `teks` | Teks paragraf (dipotong bila sangat panjang) | Sistem |
-| `info` | Ringkasan tampilan: *style*, tebal, ukuran huruf, perataan | Sistem |
-| `label_awal` | Tebakan sistem | Sistem |
-| `label_manual` | Label final (pilihan tertutup 9 kelas) | Anotator |
-| `ragu` | Centang bila ragu | Anotator |
-| `catatan` | Alasan atau kasus yang belum tercakup | Anotator |
+| `No` | Nomor urut paragraf (`para_id`) | Sistem |
+| `Teks` | Teks paragraf (dipotong 400 karakter; `[gambar]` untuk paragraf gambar) | Sistem |
+| `Gaya Word`, `Ukuran`, `Tebal`, `Rata` | Ringkasan tampilan paragraf | Sistem |
+| `Label Awal` | Tebakan sistem (tidak diubah) | Sistem |
+| `Label` | Label final (pilihan tertutup 9 kelas) | Anotator |
+| `Catatan` | Alasan, keraguan, atau kasus yang belum tercakup | Anotator |
+
+Kode naskah anonim: `L01`–`L05` (data latih), `U01`–`U02` (data uji). Paragraf kosong tanpa gambar tidak ditampilkan dan otomatis berlabel `LAINNYA` saat impor.

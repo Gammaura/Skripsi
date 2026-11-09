@@ -161,22 +161,28 @@ async def api_format_document(file: UploadFile = File(...)):
     output_filename = f"(Asdoku) - {clean_name}"
     temp_output = os.path.join(OUTPUT_DIR, output_filename)
 
-    # 1. SQA Tier 1 Loop: Agent 1 (Inspector) <-> Agent 2 (SQA Gatekeeper)
-    draft = inspector.inspect(temp_input)
-    approved = critic.coordinate_tier1_blueprint_loop(
-        inspection_report=draft,
-        inspector_agent=inspector,
-        max_iterations=3
-    )
+    try:
+        # 1. SQA Tier 1 Loop: Agent 1 (Inspector) <-> Agent 2 (SQA Gatekeeper)
+        draft = inspector.inspect(temp_input)
+        approved = critic.coordinate_tier1_blueprint_loop(
+            inspection_report=draft,
+            inspector_agent=inspector,
+            max_iterations=3
+        )
 
-    # 2. SQA Tier 2 Loop: Agent 3 (Formatter) <-> Agent 2 (SQA Acceptance Auditor)
-    tier2_res = critic.coordinate_tier2_artifact_loop(
-        input_docx_path=temp_input,
-        approved_blueprint=approved,
-        output_docx_path=temp_output,
-        formatter_agent=formatter,
-        max_iterations=3
-    )
+        # 2. SQA Tier 2 Loop: Agent 3 (Formatter) <-> Agent 2 (SQA Acceptance Auditor)
+        tier2_res = critic.coordinate_tier2_artifact_loop(
+            input_docx_path=temp_input,
+            approved_blueprint=approved,
+            output_docx_path=temp_output,
+            formatter_agent=formatter,
+            max_iterations=3
+        )
+    finally:
+        # Salinan unggahan hanya dibutuhkan selama pemrosesan; hasil rapi tetap ada di OUTPUT_DIR.
+        # Dihapus agar naskah pengguna tidak menumpuk di server.
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
     qa_result = tier2_res["final_qa_result"]
     # Weak label Agent 2 tetap tercatat di pool, tetapi tidak memicu retraining: uji non-regresi
     # menunjukkan label tersebut menurunkan kinerja. Retraining dipicu oleh label manual (lihat feedback).
@@ -264,12 +270,12 @@ async def api_al_retrain():
 # ============================================================
 # (URL alias, path relatif terhadap BASE_DIR, media type, label 404)
 _STATIC_IMAGES = (
-    (("/logo.png", "/AsdokuLogo.png", "/favicon.ico"), "AsdokuLogo.png", "image/png", "Logo"),
-    (("/logo_ueu.png",), os.path.join("data", "logo_ueu.png"), "image/png", "UEU Logo"),
-    (("/profil.jpeg", "/profil.jpg"), "profil.jpeg", "image/jpeg", "Profil image"),
-    (("/agent1.png", "/Agent 1.png"), "Agent 1.png", "image/png", "Agent 1"),
-    (("/agent2.png", "/Agent 2.png"), "Agent 2.png", "image/png", "Agent 2"),
-    (("/agent3.png", "/Agent 3.png"), "Agent 3.png", "image/png", "Agent 3"),
+    (("/logo.png", "/AsdokuLogo.png", "/favicon.ico"), "static/img/asdoku_logo.png", "image/png", "Logo"),
+    (("/logo_ueu.png",), "static/img/logo_ueu.png", "image/png", "UEU Logo"),
+    (("/profil.jpeg", "/profil.jpg"), "static/img/profil.jpeg", "image/jpeg", "Profil image"),
+    (("/agent1.png", "/Agent 1.png"), "static/img/agent1.png", "image/png", "Agent 1"),
+    (("/agent2.png", "/Agent 2.png"), "static/img/agent2.png", "image/png", "Agent 2"),
+    (("/agent3.png", "/Agent 3.png"), "static/img/agent3.png", "image/png", "Agent 3"),
 )
 
 

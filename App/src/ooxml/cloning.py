@@ -4,6 +4,7 @@ import copy
 import io
 
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
+from docx.opc.part import Part
 from docx.oxml import parse_xml
 from docx.oxml.ns import qn
 from lxml import etree
@@ -18,11 +19,22 @@ def _copy_image_relationship(rid: str, doc_src, doc_out):
     """Menyalin part gambar `rid` ke dokumen output; mengembalikan rId baru atau None."""
     if not rid or rid not in doc_src.part.rels:
         return None
+    rel = doc_src.part.rels[rid]
+    if rel.is_external:
+        return None
+    src_part = rel.target_part
     try:
-        blob = doc_src.part.rels[rid].target_part.blob
-        image_part = doc_out.part.package.get_or_add_image_part(io.BytesIO(blob))
+        image_part = doc_out.part.package.get_or_add_image_part(io.BytesIO(src_part.blob))
         return doc_out.part.relate_to(image_part, RT.IMAGE)
-    except Exception:  # gambar eksternal/rusak: biarkan rId asli
+    except Exception:
+        pass
+    # Format yang tidak dikenali python-docx (mis. WMF/EMF rumus lama): salin part apa adanya.
+    # Membiarkan rId asli berbahaya, karena di dokumen output rId itu bisa menunjuk part lain.
+    try:
+        package = doc_out.part.package
+        partname = package.next_partname(f"/word/media/image%d.{src_part.partname.ext}")
+        return doc_out.part.relate_to(Part(partname, src_part.content_type, src_part.blob, package), RT.IMAGE)
+    except Exception:
         return None
 
 

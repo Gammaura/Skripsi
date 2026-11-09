@@ -30,7 +30,7 @@ from src.ooxml.cloning import (
     has_drawing,
     has_rich_content,
 )
-from src.ooxml.fields import add_chapter_seq_marker, add_seq_caption_field, italicize_foreign_terms
+from src.ooxml.fields import add_chapter_seq_marker, add_seq_caption_field, bookmark_pair, italicize_foreign_terms
 from src.ooxml.numbering import (
     add_restarting_list_num,
     ensure_heading_multilevel_list,
@@ -79,6 +79,37 @@ _CAPTION_STYLES = {
 }
 
 
+def _citation_elements(p_elem) -> list:
+    """Elemen sitasi Mendeley di paragraf: content control MENDELEY_CITATION, fldSimple, atau field
+    kompleks (run fldChar begin..end) yang instruksinya memuat CSL_CITATION."""
+    found, group, depth = [], [], 0
+    for child in p_elem:
+        if child.tag == qn("w:sdt"):
+            tag = child.find(f"{qn('w:sdtPr')}/{qn('w:tag')}")
+            if tag is not None and (tag.get(qn("w:val")) or "").startswith("MENDELEY_CITATION"):
+                found.append(child)
+            continue
+        if child.tag == qn("w:fldSimple"):
+            if "CSL_CITATION" in (child.get(qn("w:instr")) or ""):
+                found.append(child)
+            continue
+        if child.tag != qn("w:r"):
+            continue
+        fld = child.find(qn("w:fldChar"))
+        kind = fld.get(qn("w:fldCharType")) if fld is not None else None
+        if kind == "begin":
+            depth += 1
+        if depth:
+            group.append(child)
+        if kind == "end" and depth:
+            depth -= 1
+            if depth == 0:
+                if any("CSL_CITATION" in (t.text or "") for r in group for t in r.iter(qn("w:instrText"))):
+                    found.extend(group)
+                group = []
+    return found
+
+
 def _ind(**attrs) -> Any:
     return w_el("ind", {name.replace("first_line", "firstLine"): str(v) for name, v in attrs.items()})
 
@@ -102,6 +133,7 @@ class _BuildState:
     src_to_out_num_id: Dict[str, str] = field(default_factory=dict)
     pending_chapter_title_run: Any = None  # run judul 'BAB X' tanpa judul, diisi baris judul berikutnya
     last_list_level: int = 0  # tingkat list paragraf sebelumnya (0 = bukan list)
+    next_bookmark_id: int = 900000  # id bookmark caption yang dipindahkan (rentang terpisah dari sumber)
 
     @property
     def caption_bab(self) -> int:
@@ -155,7 +187,10 @@ class FormattingActuatorAgent:
             orig_idx = item.get("para_id", 0)
             p_src = doc_src.paragraphs[orig_idx] if orig_idx < len(doc_src.paragraphs) else None
             renderer = self._renderers.get(item["approved_label"], self._render_unknown)
+            last_before = self._last_body_block(doc_out)
             renderer(state, item, p_src)
+            if p_src is not None:
+                self._preserve_bookmarks(state, p_src, last_before)
             self._insert_blocks_after_paragraph(state, orig_idx)
 
         self._copy_remaining_tables(state)
@@ -164,6 +199,8 @@ class FormattingActuatorAgent:
         self._apply_section_properties(doc_out, frontmatter_sect_pr, body_sect_pr)
         self._hide_cover_header(doc_out)
         drop_undefined_style_refs(doc_out)
+        self._repair_bookmarks(doc_out)
+        self._unstyle_empty_headings(doc_out)
         self._strip_internal_attributes(doc_out)
         sort_ppr_children(doc_out.element.body)
 
@@ -220,6 +257,11 @@ class FormattingActuatorAgent:
         if frontmatter_sect_pr is not None and first_chapter is not None:
             siblings = list(first_chapter._p.getparent())
             preceding = siblings[:siblings.index(first_chapter._p)]
+            # Section break bawaan naskah sebelum Bab 1 dibuang: tata letak halaman awal mengikuti templat
+            # (Romawi). Bila dibiarkan, section ekstra menggeser urutan Cover/Frontmatter/Bab Isi.
+            for el in preceding:
+                if el.tag == qn("w:p") and el.pPr is not None:
+                    remove_child(el.pPr, "w:sectPr")
             block_tags = (qn("w:p"), qn("w:tbl"), qn("w:sdt"))
             last_block = next((el for el in reversed(preceding) if el.tag in block_tags), None)
             if last_block is not None:
@@ -389,6 +431,84 @@ class FormattingActuatorAgent:
         elif p_src is not None and has_content_besides_ppr(p_src._p):
             clone_paragraph(p_src._p, state.doc_src, state.doc_out, "BODY_PARAGRAPH")
 
+    @staticmethod
+    def _last_body_block(doc_out):
+        return next((el for el in reversed(doc_out.element.body) if el.tag != qn("w:sectPr")), None)
+
+    def _preserve_bookmarks(self, state: _BuildState, p_src, last_before) -> None:
+        """Zero-loss bookmark: target cross-reference/PAGEREF di paragraf yang dibangun ulang (judul,
+        sub-bab) atau dibuang (paragraf kosong) dipasang ulang agar rujukan tidak menjadi
+        'Error! Reference source not found.'. Paragraf hasil dibungkus utuh; bila paragraf sumber
+        tidak menghasilkan apa pun, bookmark diletakkan di akhir paragraf hasil sebelumnya."""
+        names = [b.get(qn("w:name")) for b in p_src._p.iter(qn("w:bookmarkStart"))]
+        names = [n for n in names if n and n != "_GoBack"]
+        if not names:
+            return
+        body = state.doc_out.element.body
+        missing = [n for n in names if not body.xpath(f'.//w:bookmarkStart[@w:name="{n}"]')]
+        if not missing:
+            return
+        last_after = self._last_body_block(state.doc_out)
+        target = last_after if last_after is not None and last_after is not last_before else last_before
+        if target is None or target.tag != qn("w:p"):
+            target = next((el for el in reversed(list(body.iter(qn("w:p"))))), None)
+            if target is None:
+                return
+        wrap_whole = target is last_after and last_after is not last_before
+        pPr = target.find(qn("w:pPr"))
+        for name in missing:
+            start, end = bookmark_pair(state.next_bookmark_id, name)
+            state.next_bookmark_id += 1
+            if wrap_whole:
+                (pPr.addnext(start) if pPr is not None else target.insert(0, start))
+            else:
+                target.append(start)
+            target.append(end)
+
+    @staticmethod
+    def _carry_caption_bookmarks(state: _BuildState, p_src, p_out, has_title: bool) -> None:
+        """Bookmark caption sumber (target cross-reference 'lihat Gambar 2.1' dan entri Daftar Gambar)
+        dipasang ulang di sekitar label+nomor caption baru; tanpa ini rujukan silang menjadi
+        'Error! Reference source not found.'"""
+        names = [b.get(qn("w:name")) for b in p_src._p.iter(qn("w:bookmarkStart"))]
+        # Bookmark yang dimulai di paragraf sebelumnya dan berakhir di caption ini (pola umum Word
+        # untuk cross-reference caption di atas tabel) juga dipindahkan ke caption.
+        end_ids = {e.get(qn("w:id")) for e in p_src._p.iter(qn("w:bookmarkEnd"))}
+        if end_ids:
+            names += [b.get(qn("w:name")) for b in state.doc_src.element.body.iter(qn("w:bookmarkStart"))
+                      if b.get(qn("w:id")) in end_ids]
+        names = list(dict.fromkeys(n for n in names if n and n != "_GoBack"))
+        if not names:
+            return
+        body = state.doc_out.element.body
+        for name in names:  # sisa awal bookmark yang tersalin bersama paragraf sebelumnya dibuang
+            for dangling in body.xpath(f'.//w:bookmarkStart[@w:name="{name}"]'):
+                dangling.getparent().remove(dangling)
+        children = [c for c in p_out._p if c.tag == qn("w:r")]
+        first_run = children[0]
+        last_label_run = children[-2] if has_title and len(children) > 1 else children[-1]
+        for name in names:
+            start, end = bookmark_pair(state.next_bookmark_id, name)
+            state.next_bookmark_id += 1
+            first_run.addprevious(start)
+            last_label_run.addnext(end)
+
+    @staticmethod
+    def _emit_drawing_only(state: _BuildState, p_src) -> None:
+        """Salin paragraf sumber, buang run berteks/ganti baris, sisakan run gambar (rata tengah)."""
+        clone = clone_paragraph(p_src._p, state.doc_src, state.doc_out, "BODY_PARAGRAPH")
+        for run in list(clone.iter(qn("w:r"))):
+            if run.find(qn("w:drawing")) is None and run.find(qn("w:pict")) is None:
+                run.getparent().remove(run)
+        for el in list(clone):
+            if el.tag in (qn("w:hyperlink"), qn("w:fldSimple")) and not list(el.iter(qn("w:drawing"))):
+                clone.remove(el)
+        pPr = clone.get_or_add_pPr()
+        for tag in ("w:pStyle", "w:numPr", "w:sectPr", "w:outlineLvl"):
+            remove_child(pPr, tag)
+        replace_child(pPr, _jc("center"))
+        replace_child(pPr, spacing_el(120, 60))
+
     def _render_frontmatter_body(self, state: _BuildState, text: str, p_src, rich: bool) -> None:
         is_keywords = text.lower().startswith(KEYWORD_PREFIXES) and ":" in text
         if rich:
@@ -506,8 +626,12 @@ class FormattingActuatorAgent:
             state.src_to_out_num_id[src_num_id] = new_num_id
         return state.src_to_out_num_id[src_num_id]
 
-    def _render_caption(self, state: _BuildState, item: Dict[str, Any], _p_src) -> None:
+    def _render_caption(self, state: _BuildState, item: Dict[str, Any], p_src) -> None:
         label = item["approved_label"]
+        if p_src is not None and has_drawing(p_src._p):
+            # Gambar dan caption dalam satu paragraf (gambar, ganti baris, "Gambar 1.1 ..."): gambar
+            # dipisah menjadi paragrafnya sendiri agar tidak hilang saat caption dibangun ulang.
+            self._emit_drawing_only(state, p_src)
         display_prefix, prefix_re, space_before, space_after = _CAPTION_STYLES[label]
         state.caption_counts[label] += 1
         clean = re.sub(prefix_re, "", item.get("text", "").strip(), flags=re.IGNORECASE).strip()
@@ -519,6 +643,15 @@ class FormattingActuatorAgent:
         pPr.append(spacing_el(space_before, space_after))
         style_run(p.add_run(f"{display_prefix} "), 12, bold=True)
         add_seq_caption_field(p, display_prefix, state.caption_bab, state.caption_counts[label], title)
+        if p_src is not None:
+            self._carry_caption_bookmarks(state, p_src, p, has_title=bool(title))
+        citations = _citation_elements(p_src._p) if p_src is not None else []
+        if citations:
+            # Sitasi Mendeley di caption (mis. sumber gambar) disalin utuh sebagai field, bukan teks,
+            # agar tetap tercatat di daftar pustaka Mendeley dan tidak hilang (zero-loss).
+            style_run(p.add_run(" "), 12)
+            for el in citations:
+                p._p.append(copy.deepcopy(el))
 
     def _render_bibliography_item(self, state: _BuildState, item: Dict[str, Any], p_src) -> None:
         """Entri daftar pustaka APA: hanging indent 1,27 cm; field bibliografi Mendeley ikut tersalin."""
@@ -570,7 +703,76 @@ class FormattingActuatorAgent:
             else:
                 cursor = clone_body_element(block, state.doc_src, state.doc_out, after=cursor)
                 retarget_caption_list_fields(cursor)
+                self._format_bibliography_container(cursor)
                 state.inserted_blocks.add(block)
+
+    @staticmethod
+    def _repair_bookmarks(doc_out) -> None:
+        """Bookmark tanpa pasangan diabaikan Word (rujukan silang menjadi error): nama ganda disisakan
+        yang pertama, awal tanpa akhir ditutup di tempat, dan akhir tanpa awal dibuang."""
+        body = doc_out.element.body
+        kept_ids, seen_names = set(), set()
+        for start in list(body.iter(qn("w:bookmarkStart"))):
+            name = start.get(qn("w:name"))
+            if name in seen_names:
+                start.getparent().remove(start)
+                continue
+            seen_names.add(name)
+            kept_ids.add(start.get(qn("w:id")))
+        end_ids = set()
+        for end in list(body.iter(qn("w:bookmarkEnd"))):
+            bid = end.get(qn("w:id"))
+            if bid not in kept_ids or bid in end_ids:
+                end.getparent().remove(end)
+            else:
+                end_ids.add(bid)
+        for start in body.iter(qn("w:bookmarkStart")):
+            if start.get(qn("w:id")) not in end_ids:
+                start.addnext(start.makeelement(qn("w:bookmarkEnd"), {qn("w:id"): start.get(qn("w:id"))}))
+
+    @staticmethod
+    def _unstyle_empty_headings(doc_out) -> None:
+        """Paragraf tanpa teks bergaya Heading (pembawa section break atau gambar dari naskah sumber) dijadikan Normal,
+        agar tidak muncul sebagai judul kosong di dokumen maupun di Daftar Isi."""
+        for p in doc_out.element.body.iter(qn("w:p")):
+            pPr = p.pPr
+            style = pPr.find(qn("w:pStyle")) if pPr is not None else None
+            if style is None or not (style.get(qn("w:val")) or "").lower().startswith("heading"):
+                continue
+            if "".join(t.text or "" for t in p.iter(qn("w:t"))).strip():
+                continue  # paragraf berisi gambar saja juga dilepas: gambar bukan judul
+            pPr.remove(style)
+            remove_child(pPr, "w:outlineLvl")
+            remove_child(pPr, "w:numPr")
+
+    @staticmethod
+    def _is_bibliography_container(el) -> bool:
+        """Content control daftar pustaka: Mendeley (w:tag MENDELEY_BIBLIOGRAPHY) atau Bibliography bawaan Word."""
+        if el.tag != qn("w:sdt"):
+            return False
+        sdt_pr = el.find(qn("w:sdtPr"))
+        if sdt_pr is None:
+            return False
+        tag = sdt_pr.find(qn("w:tag"))
+        gallery = sdt_pr.find(f"{qn('w:docPartObj')}/{qn('w:docPartGallery')}")
+        return ((tag is not None and "BIBLIOGRAPHY" in (tag.get(qn("w:val")) or "").upper())
+                or (gallery is not None and gallery.get(qn("w:val")) == "Bibliographies"))
+
+    @classmethod
+    def _format_bibliography_container(cls, el) -> None:
+        """Entri di dalam content control daftar pustaka tidak terbaca sebagai paragraf body, sehingga
+        tidak melewati Inspector; formatnya disamakan dengan DAFTAR_PUSTAKA_ITEM tanpa membongkar
+        content control (Refresh Mendeley tetap berfungsi)."""
+        if not cls._is_bibliography_container(el):
+            return
+        for p in el.iter(qn("w:p")):
+            pPr = p.get_or_add_pPr()
+            for tag in ("w:pStyle", "w:numPr"):
+                remove_child(pPr, tag)
+            replace_child(pPr, _jc("both"))
+            replace_child(pPr, spacing_el(0, 120, 276))
+            replace_child(pPr, _ind(left=720, hanging=720))
+            normalize_run_fonts(p, 12, black=True)
 
     def _copy_remaining_tables(self, state: _BuildState) -> None:
         for src_table in state.doc_src.tables:
@@ -584,7 +786,9 @@ class FormattingActuatorAgent:
         for child in list(state.doc_src.element.body):
             if child.tag in skipped or child in state.inserted_blocks:
                 continue
-            retarget_caption_list_fields(clone_body_element(child, state.doc_src, state.doc_out))
+            cloned = clone_body_element(child, state.doc_src, state.doc_out)
+            retarget_caption_list_fields(cloned)
+            FormattingActuatorAgent._format_bibliography_container(cloned)
             print(f"[Agent 3 - Formatter] Zero-Loss: Menyalin elemen body non-standar <{child.tag.split('}')[-1]}>")
 
     @staticmethod

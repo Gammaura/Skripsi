@@ -958,3 +958,35 @@ Naskah proposal tugas akhir peneliti (draf Markdown → pandoc → `.docx`) dija
 * Draf proposal 5 bab mengikuti panduan Fakultas (`Document/Proposal_TA/`), Bab II landasan teori, 5 penelitian terdahulu Indonesia terverifikasi, pedoman anotasi 9 kelas (Lampiran 1), formulir izin naskah (Lampiran 4), kuesioner studi pendahuluan, serta diagram Kerangka Berpikir, Kerangka Pemikiran, dan Tahapan Penelitian (draw.io).
 * Kepanjangan Asdoku ditetapkan "Asisten Dokumenku".
 * Pertanyaan terbuka: spasi pedoman 2018 (0/0 pt) berbeda dengan formatter (6 pt; 12/6 pt sub-bab) — menunggu konfirmasi template fakultas terbaru.
+
+---
+
+### Sesi 31: Korpus Naskah Nyata, Evaluasi Jujur, dan Audit Kesesuaian dengan Proposal
+**Tanggal:** 9 November 2026  
+**Status:** Selesai (14 dokumen korpus + proposal peneliti + P1, P2, P3, P5 lolos SQA; 12 hasil dibuka di Microsoft Word dengan 0 rujukan rusak)
+
+#### 1. Data:
+* 38 berkas dari penulis lain dipilah: 7 naskah Word dipakai (6 TA, 1 proposal), 9 naskah PDF-only ditunda (konversi PDF→Word diuji pada satu naskah: gaya hilang, 155 paragraf terpotong, header ikut menjadi teks).
+* Korpus `App/data/corpus/` dibagi per naskah: latih L01–L05 (4.693 paragraf), uji U01–U02 (2.664). Nama dianonimkan; kunci di `Data/_kode_naskah.csv`. `Data/` dan `App/data/corpus/` masuk `.gitignore`.
+* Label diselaraskan dengan Pedoman Anotasi (Lampiran 1): 158 baris dikoreksi (K7 logo, K8 isian formulir, K3/K14 judul terpecah); pedoman naik ke v1.1 (K10: baris daftar isi = `LAINNYA`).
+* Pelabelan: `tools/label_excel.py` (Excel per naskah, dropdown 9 label, pra-label aturan → impor dengan validasi). 220 baris dikoreksi dengan bantuan AI (3–7% per naskah). **Verifikasi manual penulis dan kappa anotator kedua belum dilakukan.**
+* `tools/buat_heading_polos.py`: versi tiap naskah tanpa gaya Heading/Caption/TOC (tampilan dipertahankan) untuk meniru naskah yang hanya ditebalkan.
+* Dataset lama dipensiunkan dan dihapus (Dataset Asdoku 1–4, `data/datasets/`, `dataset_skripsi.csv`, generator lama, feedback Active Learning lama). P4 (laporan magang) dikeluarkan dari uji regresi.
+
+#### 2. Model:
+* Fitur baru: 7 gaya Word + 10 pola teks (BAB, nomor sub-bab, caption, nomor halaman di ujung, format pustaka, isian formulir, poin). Uji silang naskah latih: macro-F1 RF 84,4 → 94,6.
+* Pelatihan memakai naskah asli + polos; LODO dikelompokkan per naskah agar versi polos naskah uji tidak bocor.
+* Random Forest 300 pohon dipilih (LODO 94,70 vs XGBoost 91,72 vs LR 88,83). Naskah uji: RF 93,79 (asli) / 92,41 (polos).
+
+#### 3. Perbaikan sistem:
+* Agen 2: baris daftar isi ("BAB 1 PENDAHULUAN 1") tidak lagi dianggap bab; daftar BAB di Sistematika Penulisan; nama bab saja bergaya Heading 2+ bukan bab; judul bab bernomor otomatis tanpa gaya Heading tidak diturunkan; nama bab di luar daftar baku diterima bila model yakin dan berhuruf kapital (proposal 5 bab fakultas: "STUDI TEORITIS", "RENCANA HASIL DAN PEMBAHASAN"); paragraf kosong tetap LAINNYA; sampul mengikuti prediksi model.
+* Agen 3: daftar pustaka Mendeley (content control) diformat tanpa membongkar content control; gambar WMF tidak lagi merusak berkas; heading kosong/gambar bergaya Heading dilepas; section break naskah sebelum Bab 1 dibuang; gambar dan sitasi di dalam paragraf caption dipertahankan; bookmark cross-reference dipindahkan ke caption/judul baru dan bookmark tanpa pasangan diperbaiki; Daftar Gambar/Tabel manual dibangun ulang walau ada Daftar Isi native (tanpa menghapus teks non-daftar); id bookmark Daftar Isi dipisah dari id naskah sumber.
+* Web: salinan unggahan dihapus setelah diproses; angka lama (97,22%) di halaman web diganti hasil evaluasi baru.
+
+#### 4. Evaluasi baru:
+* `tools/evaluasi_ablasi.py` (RM 3): macro-F1 naskah uji asli — Agen 1 93,79; aturan Agen 2 96,79; MAS 98,90. Polos: 92,41 / 94,16 / 96,35. **Catatan validitas:** sebagian aturan Agen 2 diperbaiki setelah melihat naskah uji U01/U02.
+* `tools/evaluasi_keutuhan.py`: U01, U02, P1, P2, P3, P5 — gambar/tabel/rumus/catatan/sitasi sama, cakupan teks 100% (sebelum perbaikan: U02 kehilangan 7 gambar, U01 kehilangan 9 sitasi dan 76 rujukan silang).
+
+#### 5. Struktur repositori:
+* `README.md` akar berisi peta folder dan alur kerja. `Document/Proposal_TA/` dipecah menjadi `naskah/`, `lampiran/`, `diagram/`, `arsip/`; `Document/docs/pedoman` → `Document/Pedoman`; aset web → `App/static/img/`; `Data/` dikelompokkan per penulis + `Data/README.md`.
+* Catatan review pembimbing/penguji: `Document/Review/`.

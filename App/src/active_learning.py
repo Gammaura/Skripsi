@@ -30,7 +30,9 @@ from src.train import MAX_TFIDF_FEATURES, MODEL_PATH, RANDOM_STATE, TEST_SIZE, s
 
 IS_VERCEL = bool(os.environ.get("VERCEL"))
 FEEDBACK_CSV = "/tmp/active_learning_feedback.csv" if IS_VERCEL else "data/active_learning_feedback.csv"
-BASE_DATASET_CSV = "data/dataset_skripsi.csv"
+# Basis = korpus naskah TA berlabel (Fase 1). Korpus berisi data pribadi sehingga tidak ikut repo/deploy;
+# bila tidak ada (mis. di Vercel), feedback tetap dikumpulkan tetapi retraining dilewati.
+BASE_DATASET_CSV = "data/corpus/dataset_latih.csv"
 SOURCE_WEAK = "AGENT2_RULE"
 SOURCE_MANUAL = "MANUAL"
 # Replikasi sampel saat retraining: label manusia lebih dipercaya daripada label aturan.
@@ -188,8 +190,8 @@ class ActiveLearningManager:
         """Melatih ulang model Agent 1 (basis + feedback berbobot) dengan uji non-regresi.
 
         Model pembanding (basis saja) dan model kandidat (basis + feedback) dilatih pada split latih
-        data basis yang sama lalu diuji pada split uji basis. Catatan: label data basis saat ini dihasilkan
-        aturan `build_pure_training_data.py`, bukan anotasi manusia. Kandidat dilatih ulang
+        data basis yang sama lalu diuji pada split uji basis. Catatan: label data basis = pra-label aturan
+        yang dikoreksi (tools/label_excel.py), verifikasi manual penulis belum selesai. Kandidat dilatih ulang
         pada seluruh data dan disimpan hanya bila macro-F1-nya tidak lebih rendah dari pembanding.
         Pemanggilan bersamaan dilewati agar dua retraining tidak menulis model secara bersamaan.
         """
@@ -203,6 +205,9 @@ class ActiveLearningManager:
 
     def _retrain_with_gate(self) -> Dict[str, Any]:
         print("\n[Active Learning Retraining] Memulai retraining Agent 1 dengan uji non-regresi...")
+        if not os.path.exists(self.base_dataset_path):
+            return {"status": "skipped", "accepted": False,
+                    "reason": f"Dataset basis {self.base_dataset_path} tidak tersedia (korpus tidak ikut deploy)."}
         df_base = pd.read_csv(self.base_dataset_path)
         df_fb = _read_csv_or_empty(self.feedback_path)
         if df_fb.empty:

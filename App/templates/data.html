@@ -1,312 +1,198 @@
 
             <div class="hero-section">
                 <div class="hero-badge">METODOLOGI RISET & EVALUASI EMPIRIS</div>
-                <h1 class="hero-title">Metodologi Penelitian & Evolusi Akurasi AI</h1>
+                <h1 class="hero-title">Data, Model, dan Hasil Evaluasi</h1>
                 <p class="hero-subtitle">
-                    Penjelasan ilmiah yang mudah dipahami tentang alasan memilih Random Forest serta cerita nyata bagaimana akurasi model dinaikkan bertahap dari 90% menjadi 97% berdasarkan data logbook riset.
+                    Ringkasan jujur tentang data yang dipakai melatih Asdoku, cara pengujiannya, dan angka yang diperoleh
+                    pada naskah yang belum pernah dilihat model. Diperbarui 9 November 2026.
                 </p>
             </div>
 
-            <!-- BAGIAN 1: STUDI KOMPARASI 2 ALGORITMA AWAL (BASELINE) -->
-            <div class="bento-card" style="margin-bottom: 1rem; border-left: 3px solid var(--primary-blue);">
+            <!-- BAGIAN 1: KORPUS -->
+            <div class="bento-card" style="margin-bottom: 1rem;">
                 <div class="card-header-clean">
-                    <div class="pill-badge badge-blue">STUDI KOMPARASI AWAL (SESI 4 LOGBOOK)</div>
-                    <span style="font-size: 0.75rem; font-weight: 700; color: var(--primary-blue);">Data Awal: 644 Baris Dokumen</span>
+                    <div class="pill-badge badge-blue">KORPUS PENELITIAN</div>
+                    <span style="font-size: 0.75rem; font-weight: 700; color: var(--primary-blue);">7 naskah · 7 penulis · 7.357 paragraf</span>
                 </div>
-                <h3 class="card-title-text" style="margin-bottom: 0.4rem;">Mengapa Random Forest Dipilih Dibanding Logistic Regression?</h3>
-                <p style="font-size: 0.8rem; color: var(--text-body); line-height: 1.5; margin-bottom: 0.75rem;">
-                    Pada tahap awal penelitian (Sesi 4), dilakukan pengujian perbandingan terhadap dua algoritma kecerdasan buatan pada dataset yang sama persis (80% data latihan, 20% data uji):
+                <h3 class="card-title-text" style="margin-bottom: 0.35rem;">Data Apa yang Dipakai?</h3>
+                <p style="font-size: 0.8rem; color: var(--text-body); line-height: 1.5; margin-bottom: 0.85rem;">
+                    Naskah tugas akhir dan proposal mahasiswa Fakultas Ilmu Komputer UEU dalam format Word asli, dipakai dengan izin
+                    penulisnya. Nama penulis tidak ditampilkan: setiap naskah diberi kode. Satuan data adalah paragraf, dan setiap
+                    paragraf diberi salah satu dari 9 label struktur.
                 </p>
-
-                <!-- Tabel Komparasi Empiris -->
                 <div style="overflow-x: auto; margin-bottom: 0.85rem;">
                     <table class="clean-table" style="background: #ffffff; border: 1px solid var(--border-card); border-radius: 8px;">
                         <thead>
                             <tr>
-                                <th>Algoritma yang Diuji</th>
-                                <th style="text-align: center;">Akurasi Keseluruhan</th>
-                                <th style="text-align: center;">Ketepatan (Precision)</th>
-                                <th style="text-align: center;">Kelengkapan (Recall)</th>
-                                <th style="text-align: center;">Keseimbangan (F1)</th>
-                                <th>Hasil Deteksi Judul & Sub-Bab</th>
+                                <th>Bagian</th>
+                                <th>Naskah</th>
+                                <th style="text-align: center;">Paragraf</th>
+                                <th>Kegunaan</th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr>
-                                <td style="font-weight: 700; color: var(--text-body);">1. Logistic Regression</td>
-                                <td style="text-align: center; font-family: 'JetBrains Mono'; font-weight: 800; color: #b91c1c;">87.60%</td>
-                                <td style="text-align: center; font-family: 'JetBrains Mono';">89.69%</td>
-                                <td style="text-align: center; font-family: 'JetBrains Mono';">82.14%</td>
-                                <td style="text-align: center; font-family: 'JetBrains Mono';">87.48%</td>
-                                <td style="font-size: 0.74rem; color: #b91c1c;">Banyak salah tebak: judul bab hanya ditemukan 50% dan sub-bab sering tertukar menjadi paragraf biasa.</td>
+                                <td style="font-weight: 700;">Data latih</td>
+                                <td>L01 (proposal), L02–L05 (TA)</td>
+                                <td style="text-align: center; font-family: 'JetBrains Mono';">4.693</td>
+                                <td>Melatih model dan memilih model terbaik (uji silang antar-naskah)</td>
                             </tr>
                             <tr style="background: #edf2f7;">
-                                <td style="font-weight: 700; color: var(--primary-blue);">2. Random Forest (Terpilih)</td>
-                                <td style="text-align: center; font-family: 'JetBrains Mono'; font-weight: 800; color: var(--blue-text);">90.70%</td>
-                                <td style="text-align: center; font-family: 'JetBrains Mono'; font-weight: 700; color: var(--blue-text);">93.46%</td>
-                                <td style="text-align: center; font-family: 'JetBrains Mono';">77.52%</td>
-                                <td style="text-align: center; font-family: 'JetBrains Mono'; font-weight: 700; color: var(--blue-text);">90.30%</td>
-                                <td style="font-size: 0.74rem; color: var(--blue-text); font-weight: 600;">Sangat akurat: ketepatan tebakan judul bab dan sub-bab mencapai 100% tanpa salah tebak.</td>
+                                <td style="font-weight: 700;">Data uji</td>
+                                <td>U01, U02 (TA)</td>
+                                <td style="text-align: center; font-family: 'JetBrains Mono';">2.664</td>
+                                <td>Hanya untuk mengukur hasil akhir; tidak pernah dipakai melatih</td>
+                            </tr>
+                            <tr>
+                                <td style="font-weight: 700;">Versi heading polos</td>
+                                <td>Salinan setiap naskah tanpa gaya Heading</td>
+                                <td style="text-align: center; font-family: 'JetBrains Mono';">+7.357</td>
+                                <td>Meniru mahasiswa yang hanya menebalkan judul; selalu ikut naskah asalnya</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
-
                 <div style="background: #f7f6f3; border: 1px solid var(--border-card); border-radius: 8px; padding: 0.75rem;">
                     <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-heading); margin-bottom: 0.25rem; text-transform: uppercase;">
-                        Penjelasan Ilmiah Sederhana (Bahan Presentasi Seminar Proposal):
+                        Kenapa dibagi per naskah, bukan per paragraf?
                     </div>
                     <p style="font-size: 0.78rem; color: var(--text-body); line-height: 1.5;">
-                        <em>"Di dalam naskah skripsi, format dokumen tidak sesederhana garis lurus. Contohnya: judul sub-bab dan paragraf isi sama-sama menggunakan ukuran font 12pt. Model Logistic Regression yang membagi data menggunakan garis lurus (linear) menjadi bingung, sehingga sering salah menebak judul sub-bab sebagai paragraf biasa (akurasinya hanya 87.60%). Sebaliknya, <strong>Random Forest</strong> bekerja seperti musyawarah dari ratusan pohon keputusan. Model ini sangat cerdas menghubungkan kombinasi antara kata-kata teks dan format ukuran huruf secara bersamaan, sehingga tebakan judul bab dan sub-babnya terbukti jauh lebih akurat (mencapai 90.70%)."</em>
+                        Paragraf dari naskah yang sama punya gaya penulisan yang mirip. Kalau sebagian masuk data latih dan sebagian
+                        masuk data uji, model sudah "mengenal" gaya penulisnya sehingga nilainya tampak lebih tinggi daripada kenyataan.
+                        Itu sebabnya angka prototipe lama (sekitar 97%) tidak dipakai lagi: labelnya dibuat aturan, bukan manusia,
+                        dan sebagian dokumen uji ikut dipakai melatih.
                     </p>
                 </div>
             </div>
 
-            <!-- DOKUMEN-DOKUMEN NYATA YANG DIGUNAKAN DALAM RISET -->
-            <div class="bento-card" style="margin-bottom: 1rem;">
+            <!-- BAGIAN 2: PERBANDINGAN MODEL -->
+            <div class="bento-card" style="margin-bottom: 1rem; border-left: 3px solid var(--primary-blue);">
                 <div class="card-header-clean">
-                    <div class="pill-badge badge-blue">SUMBER DATASET & DOKUMEN RISET</div>
-                    <span style="font-size: 0.75rem; font-weight: 700; color: var(--primary-blue);">Landasan Empiris Multi-Agent System</span>
+                    <div class="pill-badge badge-blue">PERBANDINGAN MODEL</div>
+                    <span style="font-size: 0.75rem; font-weight: 700; color: var(--primary-blue);">Metrik utama: macro-F1</span>
                 </div>
-                <h3 class="card-title-text" style="margin-bottom: 0.35rem;">Dokumen Apa Saja yang Digunakan dalam Penelitian Ini?</h3>
-                <p style="font-size: 0.8rem; color: var(--text-body); line-height: 1.5; margin-bottom: 0.85rem;">
-                    Seluruh pelatihan dan pengujian kecerdasan buatan Asdoku dibangun di atas dokumen nyata sivitas akademika Universitas Esa Unggul, yang dikelompokkan ke dalam tiga kategori utama:
-                </p>
-
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;">
-                    <!-- Dokumen 1: Acuan Standar -->
-                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.75rem;">
-                        <div style="font-size: 0.68rem; font-weight: 800; color: #1e3a5f; text-transform: uppercase; margin-bottom: 0.25rem;">1. Dokumen Acuan Resmi</div>
-                        <div style="font-size: 0.82rem; font-weight: 700; color: var(--text-heading); margin-bottom: 0.35rem;">Pedoman & Template UEU 2018</div>
-                        <p style="font-size: 0.73rem; color: var(--text-body); line-height: 1.45; margin-bottom: 0.4rem;">
-                            <strong>SK Rektor No. 5 Tahun 2018</strong> dan <strong>Template Buku TA Fasilkom</strong> sebagai acuan baku: margin 4-3-3-3 cm, Times New Roman 12pt spasi 1.15, header Arial 10pt 'Universitas Esa Unggul', nomor halaman Romawi/Latin di tengah bawah 2 cm, dan tata letak 5 Bab baku.
-                        </p>
-                        <span style="font-size: 0.68rem; background: #e2ebf5; color: #1e3a5f; padding: 0.15rem 0.45rem; border-radius: 4px; font-weight: 700;">Ground-Truth Aturan</span>
-                    </div>
-
-                    <!-- Dokumen 2: Naskah Mahasiswa Nyata -->
-                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.75rem;">
-                        <div style="font-size: 0.68rem; font-weight: 800; color: #047857; text-transform: uppercase; margin-bottom: 0.25rem;">2. Naskah Nyata Mahasiswa</div>
-                        <div style="font-size: 0.82rem; font-weight: 700; color: var(--text-heading); margin-bottom: 0.35rem;">Skripsi, Proposal & Magang</div>
-                        <p style="font-size: 0.73rem; color: var(--text-body); line-height: 1.45; margin-bottom: 0.4rem;">
-                            Naskah mentah asli: <strong>contoh.docx</strong> (394 paragraf, penuh format rusak), <strong>doc_idham.docx</strong> (laporan magang MBKM), <strong>doc_dhicky.docx</strong> (skripsi MBKM 8.7 MB dengan diagram), dan naskah proposal PBB-P2 (teks murni).
-                        </p>
-                        <span style="font-size: 0.68rem; background: #d1fae5; color: #065f46; padding: 0.15rem 0.45rem; border-radius: 4px; font-weight: 700;">Variasi Teks Asli</span>
-                    </div>
-
-                    <!-- Dokumen 3: Golden Datasets & Benchmark Suite -->
-                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.75rem;">
-                        <div style="font-size: 0.68rem; font-weight: 800; color: #7c3aed; text-transform: uppercase; margin-bottom: 0.25rem;">3. Golden Datasets & Uji P1–P5</div>
-                        <div style="font-size: 0.82rem; font-weight: 700; color: var(--text-heading); margin-bottom: 0.35rem;">Dataset Asdoku 1–4 & Suite P1–P5</div>
-                        <p style="font-size: 0.73rem; color: var(--text-body); line-height: 1.45; margin-bottom: 0.4rem;">
-                            <strong>Dataset Asdoku 1–4</strong> (template terstruktur khusus Cover, Heading, Gambar, Tabel) untuk data latih murni, serta <strong>Suite Dokumen Uji P1 s/d P5</strong> yang diisolasi penuh untuk menguji ketahanan model tanpa kebocoran data.
-                        </p>
-                        <span style="font-size: 0.68rem; background: #ede9fe; color: #5b21b6; padding: 0.15rem 0.45rem; border-radius: 4px; font-weight: 700;">Benchmark Terisolasi</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- BAGIAN 2: KRONOLOGI EVOLUSI AKURASI DARI 90% -> 94% -> 97% -->
-            <div class="bento-card" style="margin-bottom: 1rem;">
-                <div class="card-header-clean">
-                    <div class="pill-badge badge-emerald">EVOLUSI TIGA TAHAP AKURASI</div>
-                    <span style="font-size: 0.75rem; font-weight: 700; color: var(--emerald-text);">Mengapa Akurasi Tidak Langsung 97%?</span>
-                </div>
-                <h3 class="card-title-text" style="margin-bottom: 0.35rem;">Tahapan Nyata Peningkatan Akurasi Sesuai Logbook Riset</h3>
+                <h3 class="card-title-text" style="margin-bottom: 0.4rem;">Mengapa Random Forest?</h3>
                 <p style="font-size: 0.8rem; color: var(--text-body); line-height: 1.5; margin-bottom: 0.75rem;">
-                    Peningkatan akurasi dari <strong>90.70%</strong> menuju <strong>94.84%</strong> hingga mencapai <strong>97.22%</strong> bukanlah rekayasa angka acak, melainkan hasil dari tiga fase eksperimen nyata dengan data, masalah, dan solusi teknik yang berbeda:
+                    Tiga algoritma dibandingkan. Macro-F1 adalah rata-rata nilai tiap label, sehingga label langka seperti judul bab
+                    dihitung sama penting dengan paragraf isi. Akurasi saja menyesatkan: menebak "paragraf isi" untuk semua baris pun
+                    sudah mendapat 67,8% di naskah uji, tanpa menemukan satu judul pun.
                 </p>
-
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.85rem; margin-top: 0.5rem; margin-bottom: 1rem;">
-                    <!-- Tahap 1 -->
-                    <div style="background: #ffffff; border: 1px solid var(--border-card); border-radius: 10px; padding: 0.95rem; display: flex; flex-direction: column;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-                            <span style="font-size: 0.68rem; font-weight: 800; color: var(--text-muted);">TAHAP 1 &bull; AWAL (SESI 4)</span>
-                            <span style="font-size: 0.68rem; font-weight: 700; background: #f0efe9; color: var(--text-muted); padding: 0.15rem 0.4rem; border-radius: 4px;">Model Baseline</span>
-                        </div>
-                        <div style="font-size: 1.55rem; font-weight: 800; color: var(--text-body); font-family: 'JetBrains Mono'; margin-bottom: 0.2rem;">90.70%</div>
-                        <div style="font-size: 0.82rem; font-weight: 800; color: var(--text-heading); margin-bottom: 0.45rem;">Pelatihan Awal Random Forest</div>
-                        
-                        <div style="font-size: 0.73rem; color: var(--text-body); line-height: 1.45; flex-grow: 1;">
-                            <div style="margin-bottom: 0.45rem;">
-                                <strong>Dokumen yang Dipakai:</strong><br>
-                                2 dokumen awal (<code>contoh.docx</code> + <code>Template-Buku-Tugas-Akhir.docx</code>) menghasilkan <strong>644 baris paragraf</strong> (515 train, 129 test).
-                            </div>
-                            <div style="margin-bottom: 0.45rem;">
-                                <strong>Metode & Fitur:</strong><br>
-                                TF-IDF (400 n-gram kata) + 15 fitur tipografi OpenXML (ukuran font, bold, alignment, numPr, drawing) &rarr; Total 415 dimensi.
-                            </div>
-                            <div style="margin-bottom: 0.45rem;">
-                                <strong>Kendala yang Dihadapi:</strong><br>
-                                <em>Class Imbalance</em> parah: paragraf isi mendominasi >75% data. Teks sampul ALL CAPS sering salah ditebak sebagai <code>FRONTMATTER_TITLE</code>, dan judul sub-bab sering disangka paragraf biasa.
-                            </div>
-                        </div>
-                        <div style="border-top: 1px solid var(--border-card); padding-top: 0.45rem; margin-top: 0.45rem; font-size: 0.7rem; color: var(--text-muted);">
-                            <strong>F1-Score:</strong> 90.30% &bull; <strong>Precision:</strong> 93.46%
-                        </div>
-                    </div>
-
-                    <!-- Tahap 2 -->
-                    <div style="background: #edf2f7; border: 1px solid #bfdbfe; border-radius: 10px; padding: 0.95rem; display: flex; flex-direction: column;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-                            <span style="font-size: 0.68rem; font-weight: 800; color: var(--primary-blue);">TAHAP 2 &bull; SESI 5 & 13</span>
-                            <span style="font-size: 0.68rem; font-weight: 700; background: #dbeafe; color: var(--primary-blue); padding: 0.15rem 0.4rem; border-radius: 4px;">Penyeimbangan & Active Learning</span>
-                        </div>
-                        <div style="font-size: 1.55rem; font-weight: 800; color: var(--primary-blue); font-family: 'JetBrains Mono'; margin-bottom: 0.2rem;">93.71% &rarr; 94.84%</div>
-                        <div style="font-size: 0.82rem; font-weight: 800; color: var(--text-heading); margin-bottom: 0.45rem;">Solusi Ketimpangan & Belajar Mandiri</div>
-                        
-                        <div style="font-size: 0.73rem; color: #1e3a5f; line-height: 1.45; flex-grow: 1;">
-                            <div style="margin-bottom: 0.45rem;">
-                                <strong>Perbedaan Data:</strong><br>
-                                Data ditambah 2 naskah mahasiswa (<code>doc_idham.docx</code> & <code>doc_dhicky.docx</code>). Dataset melonjak 2.7x lipat menjadi <strong>1.747 baris</strong> (sub-bab naik dari 42 ke 142 baris, caption dari 4 ke 30).
-                            </div>
-                            <div style="margin-bottom: 0.45rem;">
-                                <strong>Metode & Terobosan:</strong><br>
-                                1. Diterapkan <em>Balanced Class Weights</em> (bobot terbalik) agar kelas minoritas tidak kalah suara &rarr; <strong>Akurasi 93.71%</strong>.<br>
-                                2. Siklus <em>Active Learning Loop (Sesi 13)</em>: koreksi Agent 2 diserap otomatis ke pool training untuk melatih ulang Agent 1 &rarr; <strong>Akurasi 94.84%</strong>.
-                            </div>
-                            <div style="margin-bottom: 0.45rem;">
-                                <strong>Hasil Nyata:</strong><br>
-                                Kesalahan anomali salah tebak Agent 1 terpangkas drastis sebesar <strong>66.7%</strong> (turun dari 57 anomali menjadi hanya 19 anomali).
-                            </div>
-                        </div>
-                        <div style="border-top: 1px solid #bfdbfe; padding-top: 0.45rem; margin-top: 0.45rem; font-size: 0.7rem; color: #1e3a5f;">
-                            <strong>F1-Score:</strong> 94.97% &bull; <strong>Recall Sub-Bab:</strong> 96%
-                        </div>
-                    </div>
-
-                    <!-- Tahap 3 -->
-                    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 0.95rem; display: flex; flex-direction: column;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-                            <span style="font-size: 0.68rem; font-weight: 800; color: var(--emerald-text);">TAHAP 3 &bull; SESI 26</span>
-                            <span style="font-size: 0.68rem; font-weight: 700; background: #dcfce7; color: var(--emerald-text); padding: 0.15rem 0.4rem; border-radius: 4px;">Puncak Akurasi Riset</span>
-                        </div>
-                        <div style="font-size: 1.55rem; font-weight: 800; color: var(--emerald-text); font-family: 'JetBrains Mono'; margin-bottom: 0.2rem;">97.22%</div>
-                        <div style="font-size: 0.82rem; font-weight: 800; color: var(--text-heading); margin-bottom: 0.45rem;">7 Master Datasets & Spatial Cues</div>
-                        
-                        <div style="font-size: 0.73rem; color: #14532d; line-height: 1.45; flex-grow: 1;">
-                            <div style="margin-bottom: 0.45rem;">
-                                <strong>Perbedaan Data & Arsitektur:</strong><br>
-                                Beralih dari dataset monolitik campuran ke <strong>4 Golden Datasets Pengguna</strong> yang dipecah jadi <strong>7 Master Datasets Spesialis</strong>. Seluruh naskah lama (P1–P5) diisolasi 100% hanya untuk data uji (<em>Zero Cross-Contamination</em>).
-                            </div>
-                            <div style="margin-bottom: 0.45rem;">
-                                <strong>Metode & Terobosan:</strong><br>
-                                Injeksi fitur spasial tata letak fisik OpenXML: <code>is_below_drawing</code> (teks persis di bawah gambar = 99% caption gambar) dan <code>is_above_table</code> (teks persis di atas tabel = 99% caption tabel).
-                            </div>
-                            <div style="margin-bottom: 0.45rem;">
-                                <strong>Hasil Nyata:</strong><br>
-                                Deteksi sempurna (<strong>F1 = 1.00 / 100%</strong>) pada seluruh kelas kunci skripsi: Judul Bab, Sub-Bab, Caption Gambar, dan Caption Tabel.
-                            </div>
-                        </div>
-                        <div style="border-top: 1px solid #bbf7d0; padding-top: 0.45rem; margin-top: 0.45rem; font-size: 0.7rem; color: #14532d;">
-                            <strong>Akurasi Holdout:</strong> 97.22% &bull; <strong>Weighted F1:</strong> 0.97
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Tabel Komparasi Rangkuman 3 Tahap -->
-                <div style="overflow-x: auto; border: 1px solid var(--border-card); border-radius: 8px;">
-                    <table class="clean-table" style="font-size: 0.75rem; width: 100%;">
+                <div style="overflow-x: auto; margin-bottom: 0.85rem;">
+                    <table class="clean-table" style="background: #ffffff; border: 1px solid var(--border-card); border-radius: 8px;">
                         <thead>
                             <tr>
-                                <th style="width: 140px;">Fase Eksperimen</th>
-                                <th>Dokumen & Sumber Data</th>
-                                <th style="width: 110px;">Jumlah Data</th>
-                                <th>Inovasi Utama yang Diterapkan</th>
-                                <th style="width: 80px; text-align: center;">Akurasi</th>
-                                <th style="width: 130px;">Status Deteksi Kunci</th>
+                                <th>Algoritma</th>
+                                <th style="text-align: center;">Uji silang naskah latih</th>
+                                <th style="text-align: center;">Naskah uji · asli</th>
+                                <th style="text-align: center;">Naskah uji · heading polos</th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr>
-                                <td><strong>Tahap 1 (Sesi 4)</strong></td>
-                                <td><code>contoh.docx</code> + Template Buku TA</td>
-                                <td>644 Baris</td>
-                                <td>Baseline TF-IDF (400 n-gram) + 15 fitur tipografi OpenXML dasar</td>
-                                <td style="text-align: center; font-weight: 700;">90.70%</td>
-                                <td>Sub-bab sering tertukar; cover ALL CAPS salah tebak</td>
+                                <td style="font-weight: 700;">Logistic Regression</td>
+                                <td style="text-align: center; font-family: 'JetBrains Mono';">88,83 ± 3,50%</td>
+                                <td style="text-align: center; font-family: 'JetBrains Mono';">86,57%</td>
+                                <td style="text-align: center; font-family: 'JetBrains Mono';">82,59%</td>
+                            </tr>
+                            <tr style="background: #edf2f7;">
+                                <td style="font-weight: 700; color: var(--primary-blue);">Random Forest (terpilih)</td>
+                                <td style="text-align: center; font-family: 'JetBrains Mono';">94,70 ± 4,19%</td>
+                                <td style="text-align: center; font-family: 'JetBrains Mono'; font-weight: 800; color: var(--blue-text);">93,79%</td>
+                                <td style="text-align: center; font-family: 'JetBrains Mono'; font-weight: 800; color: var(--blue-text);">92,41%</td>
                             </tr>
                             <tr>
-                                <td><strong>Tahap 2 (Sesi 5 & 13)</strong></td>
-                                <td>Tambah <code>doc_idham.docx</code> & <code>doc_dhicky.docx</code></td>
-                                <td>1.747 Baris</td>
-                                <td>Pembobotan seimbang (Balanced Weights) + Active Learning Loop</td>
-                                <td style="text-align: center; font-weight: 700; color: var(--primary-blue);">94.84%</td>
-                                <td>Recall sub-bab naik ke 96%; salah tebak terpangkas 66.7%</td>
-                            </tr>
-                            <tr>
-                                <td><strong>Tahap 3 (Sesi 26)</strong></td>
-                                <td>4 Golden Datasets & 7 Master Datasets Spesialis</td>
-                                <td>Dataset Murni</td>
-                                <td>Spatial Cues (posisi fisik gambar/tabel) + Isolasi Data Uji (Zero Contamination)</td>
-                                <td style="text-align: center; font-weight: 800; color: var(--emerald-text);">97.22%</td>
-                                <td>F1 = 100% sempurna pada Bab, Sub-Bab, Tabel, & Gambar</td>
+                                <td style="font-weight: 700;">XGBoost (pembanding)</td>
+                                <td style="text-align: center; font-family: 'JetBrains Mono';">91,72 ± 7,57%</td>
+                                <td style="text-align: center; font-family: 'JetBrains Mono';">71,59%</td>
+                                <td style="text-align: center; font-family: 'JetBrains Mono';">69,69%</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
+                <p style="font-size: 0.74rem; color: var(--text-muted); line-height: 1.45;">
+                    Angka: macro-F1 pada naskah uji. Random Forest dipilih karena macro-F1 uji silang antar-naskah tertinggi (data latih saja); naskah uji hanya
+                    dipakai sekali untuk mengukur. XGBoost juga tidak dapat dipakai di versi web karena ukuran pustakanya melebihi batas Vercel.
+                    Rincian lengkap: <code>App/output/eval_report_korpus.md</code>.
+                </p>
             </div>
 
-            <!-- BAGIAN 3: 4 PILAR METODOLOGI ASDOKU -->
+            <!-- BAGIAN 3: ABLASI & KEUTUHAN -->
+            <div class="bento-grid" style="margin-bottom: 1rem;">
+                <div class="bento-card col-span-6">
+                    <div class="card-header-clean">
+                        <div class="pill-badge badge-emerald">UJI ABLASI</div>
+                        <span style="font-size: 0.75rem; font-weight: 700; color: var(--emerald-text);">Apakah kerja sama agen membantu?</span>
+                    </div>
+                    <h3 class="card-title-text" style="font-size: 1.05rem; margin-bottom: 0.35rem;">Agen 1 saja vs sistem multi-agen</h3>
+                    <table class="clean-table" style="font-size: 0.75rem; width: 100%;">
+                        <thead>
+                            <tr><th>Konfigurasi</th><th style="text-align: center;">Asli</th><th style="text-align: center;">Polos</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>Agen 1 saja (model)</td><td style="text-align: center;">93,79%</td><td style="text-align: center;">92,41%</td></tr>
+                            <tr><td>Aturan Agen 2 saja</td><td style="text-align: center;">96,79%</td><td style="text-align: center;">94,16%</td></tr>
+                            <tr style="background: #f0fdf4;"><td><strong>Sistem multi-agen</strong></td><td style="text-align: center;"><strong>98,90%</strong></td><td style="text-align: center;"><strong>96,35%</strong></td></tr>
+                        </tbody>
+                    </table>
+                    <p style="font-size: 0.72rem; color: var(--text-muted); line-height: 1.45; margin-top: 0.5rem;">
+                        Macro-F1 pada naskah uji. Catatan validitas: sebagian aturan Agen 2 disempurnakan setelah melihat naskah uji,
+                        sehingga angka sistem multi-agen perlu dikonfirmasi pada naskah uji baru.
+                    </p>
+                </div>
+                <div class="bento-card col-span-6">
+                    <div class="card-header-clean">
+                        <div class="pill-badge badge-emerald">UJI KEUTUHAN ISI</div>
+                        <span style="font-size: 0.75rem; font-weight: 700; color: var(--emerald-text);">Tidak ada isi yang hilang</span>
+                    </div>
+                    <h3 class="card-title-text" style="font-size: 1.05rem; margin-bottom: 0.35rem;">Sebelum vs sesudah dirapikan</h3>
+                    <p style="font-size: 0.78rem; color: var(--text-body); line-height: 1.5;">
+                        Pada 2 naskah uji dan 4 dokumen uji regresi (P1, P2, P3, P5), jumlah gambar, tabel, rumus, catatan kaki, dan
+                        sitasi Mendeley sama persis sebelum dan sesudah dirapikan, dan 100% teks sumber ditemukan di hasil. Semua hasil
+                        dibuka di Microsoft Word asli: 0 rujukan silang yang rusak.
+                    </p>
+                    <p style="font-size: 0.72rem; color: var(--text-muted); line-height: 1.45; margin-top: 0.5rem;">
+                        Rincian: <code>App/output/eval_keutuhan.md</code> dan <code>App/output/eval_ablasi.md</code>.
+                    </p>
+                </div>
+            </div>
+
+            <!-- BAGIAN 4: LABEL & FITUR -->
             <div class="bento-grid">
-                <!-- Pilar 1 -->
                 <div class="bento-card col-span-6">
                     <div class="card-header-clean">
-                        <div class="pill-badge badge-blue">PILAR 1 &bull; PENGELOMPOKAN DATA</div>
-                        <span style="font-size: 0.75rem; font-weight: 700; color: var(--primary-blue);">Fokus & Terstruktur</span>
+                        <div class="pill-badge badge-blue">9 LABEL STRUKTUR</div>
+                        <span style="font-size: 0.75rem; font-weight: 700; color: var(--primary-blue);">Satu label per paragraf</span>
                     </div>
-                    <h3 class="card-title-text" style="font-size: 1.05rem; margin-bottom: 0.35rem;">7 Kelompok Data Latihan Spesialis</h3>
-                    <p style="font-size: 0.8rem; color: var(--text-body); line-height: 1.5; margin-bottom: 0.5rem;">
-                        Data naskah dikelompokkan secara terarah agar kecerdasan buatan dapat mempelajari pola tiap bagian dokumen dengan sangat fokus:
+                    <div style="font-size: 0.75rem; color: var(--text-body); display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem;">
+                        <div><strong>COVER_METADATA</strong> · isi sampul</div>
+                        <div><strong>FRONTMATTER_TITLE</strong> · judul halaman depan</div>
+                        <div><strong>JUDUL_BAB</strong> · judul bab</div>
+                        <div><strong>SUB_BAB</strong> · sub-bab dan sub-sub-bab</div>
+                        <div><strong>BODY_PARAGRAPH</strong> · paragraf isi</div>
+                        <div><strong>CAPTION_GAMBAR</strong> · keterangan gambar</div>
+                        <div><strong>CAPTION_TABEL</strong> · keterangan tabel</div>
+                        <div><strong>DAFTAR_PUSTAKA_ITEM</strong> · entri pustaka</div>
+                        <div><strong>LAINNYA</strong> · daftar isi, tanda tangan, baris kosong</div>
+                    </div>
+                    <p style="font-size: 0.72rem; color: var(--text-muted); line-height: 1.45; margin-top: 0.5rem;">
+                        Label awal dibuat aturan lalu dikoreksi; verifikasi manual oleh penulis dan anotator kedua (Cohen's kappa)
+                        masih berjalan.
                     </p>
-                    <div style="font-size: 0.75rem; color: var(--text-body); display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
-                        <div style="display: flex; flex-direction: column; gap: 0.35rem;">
-                            <div><strong>Bagian 1:</strong> Sampul & Halaman Depan</div>
-                            <div><strong>Bagian 2:</strong> Batas Transisi Antar-Bab</div>
-                            <div><strong>Bagian 3:</strong> Judul Bab vs Sub-Bab</div>
-                            <div><strong>Bagian 4:</strong> Gambar & Judul Keterangannya</div>
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 0.35rem;">
-                            <div><strong>Bagian 5:</strong> Tabel & Judul Keterangannya</div>
-                            <div><strong>Bagian 6:</strong> Rumus & Kode Pemrograman</div>
-                            <div><strong>Bagian 7:</strong> Paragraf Isi Dokumen & Daftar Pustaka</div>
-                        </div>
-                    </div>
                 </div>
-
-                <!-- Pilar 2 -->
                 <div class="bento-card col-span-6">
                     <div class="card-header-clean">
-                        <div class="pill-badge badge-blue">PILAR 2 &bull; CIRI KHAS TEKS</div>
-                        <span style="font-size: 0.75rem; font-weight: 700; color: var(--primary-blue);">14 Ciri Gabungan</span>
+                        <div class="pill-badge badge-blue">FITUR</div>
+                        <span style="font-size: 0.75rem; font-weight: 700; color: var(--primary-blue);">Teks + tampilan Word</span>
                     </div>
-                    <h3 class="card-title-text" style="font-size: 1.05rem; margin-bottom: 0.35rem;">14 Ciri Cerdas (Kata & Tampilan Word)</h3>
-                    <p style="font-size: 0.8rem; color: var(--text-body); line-height: 1.5; margin-bottom: 0.5rem;">
-                        Menggabungkan arti kata-kata naskah dengan pengaturan fisik dokumen Microsoft Word:
-                    </p>
-                    <div style="font-size: 0.73rem; color: var(--text-body); display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
-                        <div style="display: flex; flex-direction: column; gap: 0.3rem;">
-                            <div><strong>1.</strong> Kata Kunci Teks (TF-IDF N-Gram)</div>
-                            <div><strong>2.</strong> Jumlah Kata per Paragraf</div>
-                            <div><strong>3.</strong> Total Panjang Karakter Teks</div>
-                            <div><strong>4.</strong> Rasio Huruf Kapital (ALL CAPS)</div>
-                            <div><strong>5.</strong> Ukuran Huruf / Font Size (pt)</div>
-                            <div><strong>6.</strong> Status Cetak Tebal (Bold)</div>
-                            <div><strong>7.</strong> Status Cetak Miring (Italic)</div>
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 0.3rem;">
-                            <div><strong>8.</strong> Penomoran Otomatis (w:numPr)</div>
-                            <div><strong>9.</strong> Elemen Gambar & Bagan (Drawing)</div>
-                            <div><strong>10.</strong> Pemisah Halaman (Page Break)</div>
-                            <div><strong>11.</strong> Spasi Sebelum & Sesudah Baris</div>
-                            <div><strong>12.</strong> Jarak Antar-Baris Kalimat (1.15)</div>
-                            <div><strong>13.</strong> Indentasi Baris Pertama (1.27 cm)</div>
-                            <div><strong>14.</strong> Posisi Relatif dalam Dokumen (0–1)</div>
-                        </div>
+                    <div style="font-size: 0.75rem; color: var(--text-body); display: flex; flex-direction: column; gap: 0.3rem;">
+                        <div><strong>Teks:</strong> TF-IDF kata dan pasangan kata (400 fitur)</div>
+                        <div><strong>Tipografi & tata letak (20):</strong> panjang, rasio kapital, ukuran huruf, tebal, miring, nomor otomatis, gambar, page break, spasi, indentasi, perataan, posisi dalam dokumen</div>
+                        <div><strong>Gaya Word (7):</strong> Heading 1, Heading 2, Heading 3+, gaya daftar isi, Caption, List, Title</div>
+                        <div><strong>Pola teks (10):</strong> "BAB I", "2.1.3", "Gambar 2.1", "Tabel 3.2", nomor halaman di ujung, format pustaka "Nama, A. (2021)", isian "Nama :", poin "1.", tanda baca akhir</div>
                     </div>
                 </div>
             </div>
-        
+
 
         <!-- ========================================== -->
         <!-- TAB 5: KRONOLOGI RISET (DARI AWAL BANGET) -->

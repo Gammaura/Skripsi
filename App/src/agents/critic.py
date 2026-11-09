@@ -28,6 +28,7 @@ from src.academic_rules import (
     LABEL_COVER,
     LABEL_FIGURE_CAPTION,
     LABEL_FRONTMATTER,
+    LABEL_OTHER,
     LABEL_SUBCHAPTER,
     LABEL_TABLE_CAPTION,
     MAX_CAPTION_WORDS,
@@ -77,6 +78,10 @@ MIN_EXPLANATION_WORDS = 8
 CITATION_RES = (re.compile(r"^\([^\)]+,\s*\d{4}[a-z]?\)$"), re.compile(r"^[A-Z][a-zA-Z\s\.,\-]+\s*\(\d{4}[a-z]?\)\."))
 CAPTION_WORD_RE = re.compile(r"^(Gambar|Figure|Tabel|Table)\b", re.IGNORECASE)
 CAPTION_NUMBER_RE = re.compile(r"^(?:Gambar|Figure|Tabel|Table)\s*(\d+)[\.\-](\d+)", re.IGNORECASE)
+# Nomor halaman di ujung baris Daftar Isi/Tabel/Gambar: angka 1-3 digit atau Romawi huruf kecil.
+UNLISTED_CHAPTER_MIN_CONFIDENCE = 0.8
+TOC_PAGE_NUMBER_RE = re.compile(r"\s(\d{1,3}|[ivxlc]{1,6})$")
+TOC_STYLE_RE = re.compile(r"^(toc \d|table of figures)$", re.IGNORECASE)
 H1_BAB_TEXT_RE = re.compile(r"BAB\s+(\d+|[IVXLCDM]+)", re.IGNORECASE)
 FRONTMATTER_H1_MARKERS = ("DAFTAR", "ABSTRAK", "ABSTRACT", "LAMPIRAN", "PERNYATAAN", "PENGESAHAN", "PERSETUJUAN", "KATA PENGANTAR", "PRAKATA", "RIWAYAT")
 
@@ -176,6 +181,21 @@ def _extract_signals(item: Dict[str, Any], next_item: Optional[Dict[str, Any]]) 
     )
 
 
+def _is_toc_entry(s: _Signals) -> bool:
+    """Baris Daftar Isi/Tabel/Gambar: bergaya TOC, atau judul (BAB/sub-bab/caption/judul halaman)
+    yang diakhiri nomor halaman. Tanpa ini 'BAB 1 PENDAHULUAN 1' di Daftar Isi dikira Bab 1 sehingga
+    judul bab asli sesudahnya dianggap tidak monotonik (terutama pada naskah tanpa gaya TOC)."""
+    if TOC_STYLE_RE.match(s.style or ""):
+        return True
+    page = TOC_PAGE_NUMBER_RE.search(s.stripped)
+    if page is None or s.word_count < 3:
+        return False
+    title = s.stripped[:page.start()].strip()
+    upper = title.upper()
+    return bool(BAB_LITERAL_RE.match(upper) or SUBCHAPTER_NUMBER_RE.match(title) or CAPTION_NUMBER_RE.match(title)
+                or upper.rstrip(".:;") in FRONTMATTER_TITLES or infer_bab_number(title) > 0)
+
+
 def _looks_like_variable_item(s: _Signals) -> bool:
     """Pola butir variabel keterangan rumus, mis. 'X = ...' (bukan hipotesis/catatan)."""
     return bool(VARIABLE_ITEM_RE.search(s.stripped)) and not s.is_hypothesis and not s.upper.startswith(NOTE_PREFIXES)
@@ -211,6 +231,12 @@ class _StructureAuditor:
             if self.sistematika_count > SISTEMATIKA_WINDOW:
                 self.in_sistematika = False
 
+        if not s.stripped and pred == LABEL_OTHER:
+            return LABEL_OTHER, None  # paragraf kosong (rule prior) tidak diubah rantai audit
+
+        if _is_toc_entry(s):
+            return LABEL_OTHER, (None if pred == LABEL_OTHER else "Teks adalah baris Daftar Isi/Tabel/Gambar (diakhiri nomor halaman), bukan judul.")
+
         if s.upper_np in BIBLIOGRAPHY_TITLES:
             self.in_bibliography = True
 
@@ -220,7 +246,7 @@ class _StructureAuditor:
         is_variable_item = self.in_formula_legend and _looks_like_variable_item(s)
 
         inferred_bab = infer_bab_number(s.text) if (s.word_count <= MAX_SUBCHAPTER_WORDS and not s.is_frontmatter) else 0
-        is_real_chapter = self._is_real_chapter(s, inferred_bab)
+        is_real_chapter = self._is_real_chapter(s, inferred_bab, pred, item)
 
         is_title_line = self._is_chapter_title_line(s, inferred_bab)
         meta["chapter_title_continuation"] = is_title_line
@@ -251,15 +277,38 @@ class _StructureAuditor:
             if self.formula_legend_count > FORMULA_LEGEND_WINDOW or s.word_count > 25 or (":" not in s.text and not _looks_like_variable_item(s)):
                 self.in_formula_legend = False
 
-    def _is_real_chapter(self, s: _Signals, inferred_bab: int) -> bool:
+    def _is_real_chapter(self, s: _Signals, inferred_bab: int, pred: str = LABEL_CHAPTER,
+                         item: Optional[Dict[str, Any]] = None) -> bool:
         if inferred_bab <= 0 or s.word_count > MAX_CHAPTER_WORDS or any(k in s.upper for k in NARRATIVE_CHAPTER_MARKERS):
             return False
-        if self.in_sistematika and s.followed_by_chapter_description:
+        has_bab_word = bool(BAB_LITERAL_RE.match(s.upper))
+        if self.in_sistematika:
+            # Butir daftar bab di Sistematika Penulisan: diikuti deskripsi, bergaya List Paragraph, atau tidak
+            # tebal. Nomor otomatis bukan pembeda karena judul bab asli pun sering bernomor otomatis.
+            bold = bool(item and item.get("raw_features", {}).get("is_bold"))
+            if (s.followed_by_chapter_description or s.style == "List Paragraph"
+                    or (not bold and not s.style.startswith("Heading"))):
+                return False
+        if not has_bab_word and re.match(r"heading [2-9]$", s.style.lower()):
+            return False  # 'Hasil' bergaya Heading 3 adalah sub-bab walau namanya sama dengan nama bab
+        if not has_bab_word and pred != LABEL_CHAPTER and s.style.lower() != "heading 1":
+            # Nama bab saja ('Hasil', 'Metodologi') tanpa kata BAB: perlu dukungan model atau gaya Heading 1,
+            # agar sub-bab bernama mirip bab tidak memotong urutan bab.
             return False
         if (self.last_bab == 0 and inferred_bab == 1) or inferred_bab == self.last_bab + 1:
             self.in_sistematika = self.in_bibliography = self.in_formula_legend = False
             return True
         return False
+
+    def _accept_unlisted_chapter(self, s: _Signals, item: Dict[str, Any]) -> bool:
+        """Judul bab bernama tidak baku (mis. pedoman fakultas lain) yang diprediksi JUDUL_BAB oleh model:
+        diterima sebagai bab berikutnya bila berhuruf kapital, pendek, bukan kalimat, dan bergaya Heading 1
+        atau diprediksi dengan keyakinan tinggi. Daftar nama bab tidak lagi menjadi satu-satunya penentu."""
+        if self.last_bab >= LAST_CHAPTER or s.word_count > MAX_CHAPTER_WORDS:
+            return False
+        if not s.stripped.isupper() or s.stripped.endswith(SENTENCE_ENDINGS):
+            return False
+        return s.style.lower() == "heading 1" or item.get("confidence", 0.0) >= UNLISTED_CHAPTER_MIN_CONFIDENCE
 
     def _start_chapter(self, bab_num: int, s: _Signals) -> None:
         self.last_bab = bab_num
@@ -295,9 +344,9 @@ class _StructureAuditor:
             return False
         return inferred_bab == self.last_bab or (s.stripped.isupper() and not s.stripped.endswith(SENTENCE_ENDINGS))
 
-    def _cover_or_body(self, s: _Signals) -> str:
-        if not self.has_passed_cover and s.word_count <= 15 and any(k in s.upper for k in COVER_KEYWORDS):
-            return LABEL_COVER
+    def _cover_or_body(self, s: _Signals, pred: str = LABEL_BODY) -> str:
+        if not self.has_passed_cover and (pred == LABEL_COVER or (s.word_count <= 15 and any(k in s.upper for k in COVER_KEYWORDS))):
+            return LABEL_COVER  # judul naskah di sampul tidak memuat kata kunci: ikuti prediksi model
         return LABEL_BODY
 
     @staticmethod
@@ -325,7 +374,7 @@ class _StructureAuditor:
             reason = None
             if pred in STRUCTURAL_LABELS:
                 reason = "Teks berada di halaman depan/pengesahan/kata pengantar sebelum Bab 1 (dialihkan ke BODY_PARAGRAPH/COVER_METADATA)."
-            return self._cover_or_body(s), reason
+            return self._cover_or_body(s, pred), reason
 
         if self.in_bibliography:
             reason = "Teks berada di dalam bagian Daftar Pustaka (dialihkan ke BODY_PARAGRAPH)." if pred in (LABEL_SUBCHAPTER, LABEL_CHAPTER) else None
@@ -349,8 +398,10 @@ class _StructureAuditor:
             s.is_citation or s.is_hypothesis or s.is_formula_legend or is_variable_item or s.is_source_note
             or s.is_numbered_list or meta.get("has_num") or s.style == "List Paragraph"
         )
+        # Judul bab yang lolos validasi monotonik tidak diturunkan walau bernomor otomatis tanpa gaya
+        # Heading (mahasiswa sering memakai list bernomor bergaya Normal untuk judul bab).
         if (not s.is_standard_sub and not s.is_numbered_sub and not s.style.startswith("Heading")
-                and not CAPTION_WORD_RE.match(s.stripped) and is_detail_item):
+                and not CAPTION_WORD_RE.match(s.stripped) and is_detail_item and not is_real_chapter):
             reason = "Teks rincian butir/keterangan rumus/sumber/hipotesis/sitasi dialihkan ke BODY_PARAGRAPH." if pred in (LABEL_SUBCHAPTER, LABEL_CHAPTER) else None
             return LABEL_BODY, reason
 
@@ -369,6 +420,10 @@ class _StructureAuditor:
         if pred == LABEL_CHAPTER:
             if s.is_numbered_sub or s.is_standard_sub:
                 return LABEL_SUBCHAPTER, "Teks diprediksi JUDUL_BAB namun memiliki pola penomoran/nama Sub-Bab resmi UEU."
+            if self._accept_unlisted_chapter(s, item):
+                self._start_chapter(self.last_bab + 1, s)
+                return LABEL_CHAPTER, (f"Nama bab di luar daftar baku diterima sebagai Bab {self.last_bab} "
+                                       "(prediksi ML yakin, huruf kapital, gaya/urutan judul bab).")
             return LABEL_BODY, "Teks tidak memuat kata 'BAB' atau nama bab resmi UEU (False Positive ML)."
 
         if self._looks_like_subchapter(s, meta, pred):
@@ -390,6 +445,8 @@ class _StructureAuditor:
             return LABEL_SUBCHAPTER, f"Teks '{s.stripped}' berada di bawah Bab {inferred_bab} aktif (Sub-Bab)."
         if inferred_bab > self.last_bab + 1 and not BAB_LITERAL_RE.match(s.upper):
             return LABEL_SUBCHAPTER, f"Teks '{s.stripped}' bukan Bab baru (lompatan nomor tanpa kata 'BAB')."
+        if not BAB_LITERAL_RE.match(s.upper) and re.match(r"heading [2-9]$", s.style.lower()):
+            return LABEL_SUBCHAPTER, f"Teks '{s.stripped}' bergaya {s.style} tanpa kata 'BAB' (Sub-Bab, bukan Bab baru)."
         self._start_chapter(inferred_bab, s)
         return LABEL_CHAPTER, (None if pred == LABEL_CHAPTER else f"Teks dikenali sebagai Judul Bab {inferred_bab} Kanonikal UEU.")
 
@@ -420,6 +477,10 @@ class _StructureAuditor:
         if self.last_bab >= 1 and final == LABEL_COVER:
             final = LABEL_BODY
             reason = "Teks berada di dalam Bab Isi naskah (dialihkan dari COVER_METADATA ke BODY_PARAGRAPH)."
+        if not s.stripped and final in STRUCTURAL_LABELS:
+            # Paragraf kosong bergaya Heading tidak boleh menjadi judul kosong di dokumen hasil.
+            final = LABEL_BODY if meta.get("has_img") else LABEL_OTHER
+            reason = "Paragraf kosong tidak dapat menjadi judul (dialihkan dari label struktural)."
         return final, reason
 
     def _assign_heading_level(self, s: _Signals, meta: Dict[str, Any]) -> None:
@@ -805,6 +866,8 @@ def _check_table_borders(doc) -> List[str]:
     for idx, table in enumerate(doc.tables):
         if len(table.rows) <= 1 and len(table.columns) <= 1:
             continue
+        if "materai" in " ".join(cell.text.lower() for row in table.rows for cell in row.cells):
+            continue  # kotak materai sengaja berbingkai (format_materai_box), bukan tabel data APA 7
         borders = table._tbl.tblPr.find(qn("w:tblBorders"))
         if borders is None:
             continue

@@ -14,7 +14,6 @@ Dokumen-dokumen di bawah ini merupakan dataset dokumen uji resmi (*Benchmark Tes
 | **P1** | `P1_Template_Resmi_UEU.docx` | 2.95 MB | 248 | 3 | 5 | 4.273 | **Golden Standard Template:** Menguji struktur lengkap BAB I–V, Sub-bab (Heading 2), Sub-sub-bab (Heading 3), Multilevel List (`BAB 1`, `1.1`, `1.1.1`), Caption Gambar, Caption Tabel, Daftar Isi otomatis, dan proteksi gambar. |
 | **P2** | `P2_Skripsi_Mbkm_Dhicky.docx` | 8.72 MB | 381 | 8 | 3 | 5.070 | **Heavy Real-World Thesis:** Menguji naskah nyata ukuran besar (8.7 MB) dengan puluhan gambar screenshot sistem, lampiran kompleks, dan tabel data luas. |
 | **P3** | `P3_Proposal_Bab1_3_PBB.docx` | 0.08 MB | 177 | 7 | 2 | 5.813 | **Raw Text / Tanpa Template:** Menguji naskah proposal mahasiswa yang tidak menggunakan template Word bawaan (format teks murni, tanpa heading style awal). |
-| **P4** | `P4_Laporan_Mbkm_Arditya.docx` | 0.40 MB | 394 | 5 | 2 | 5.036 | **Cross-User Generalization:** Menguji ketahanan model dan aturan agen terhadap gaya penulisan mahasiswa berbeda (variasi margin, spasi, dan layout cover). |
 | **P5** | `P5_Buku_TA_Landscape.docx` | 0.38 MB | 250 | 4 | 6 | 1.389 | **Anomaly Layout & Orientation:** Menguji pemulihan otomatis section rusak berorientasi landscape (`w:orient="landscape"`) menjadi 100% A4 Portrait dan margin 4-3-3-3. |
 
 ---
@@ -46,12 +45,7 @@ Dokumen-dokumen di bawah ini merupakan dataset dokumen uji resmi (*Benchmark Tes
   2. Menguji otomatisasi injeksi style Heading 1, 2, 3 ke dalam Navigation Pane Word.
   3. Menguji penataan margin resmi 4 3 3 3 cm dan line spacing 1.15.
 
-### P4 — Laporan MBKM Mandiri Arditya Adjie (`P4_Laporan_Mbkm_Arditya.docx`)
-* **Asal Dokumen:** Laporan MBKM Mandiri mahasiswa Sistem Informasi UEU.
-* **Karakteristik:** Memiliki variasi tata letak halaman pengesahan, struktur sistematika penulisan, serta daftar istilah asing/teknis.
-* **Tujuan Pengujian:**
-  1. Validasi fitur tipografi otomatis (cetak miring istilah asing/teknologi IT seperti *database, framework, backend, frontend, API*).
-  2. Validasi pencegahan false positive pada bagian ringkasan sistematika penulisan.
+> **Catatan:** P4 (Laporan MBKM Mandiri) dikeluarkan dari suite uji per 9 November 2026 karena laporan magang berada di luar lingkup sistem (dokumen tugas akhir). Kode P4 sengaja tidak dipakai ulang.
 
 ### P5 — Template Buku Tugas Akhir 2018 (`P5_Buku_TA_Landscape.docx`)
 * **Asal Dokumen:** Template Buku Tugas Akhir UEU terbitan September 2018.

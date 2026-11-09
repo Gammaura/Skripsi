@@ -36,7 +36,13 @@ App/output/*.docx
 App/output/*.pdf
 !App/output/pengujian/*
 App/output/eval_report_*.md
+# Laporan evaluasi korpus (anonim, bukti Bab IV) tetap dicatat
+!App/output/eval_report_korpus.md
 
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Naskah mahasiswa lain (data pribadi) - jangan masuk repo
+Data/
+App/data/corpus/

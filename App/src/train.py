@@ -3,7 +3,7 @@ Modul Pelatihan Machine Learning (Training Pipeline & Model Evaluation).
 
 Tahap 3 Metodologi Skripsi:
 Modul ini bertugas:
-1. Membaca dataset dari data/dataset_skripsi.csv.
+1. Membaca dataset korpus naskah TA berlabel (data/corpus/dataset_latih.csv & dataset_uji.csv).
 2. Mengekstraksi fitur gabungan (Hybrid):
    - Fitur Teks: TF-IDF (N-gram 1-2).
    - Fitur Metadata: Font size, bold, italic, uppercase ratio, alignment, numPr, drawing, page break, posisi dokumen.
@@ -27,7 +27,7 @@ from sklearn.base import clone
 from sklearn.metrics import accuracy_score, classification_report, f1_score
 from sklearn.model_selection import train_test_split
 
-from src.classifiers import candidate_models
+from src.classifiers import MODEL_LOGREG, MODEL_RF, candidate_models
 from src.features import DocumentFeaturePipeline
 
 MODEL_PATH = "models/baseline_model.joblib"
@@ -71,7 +71,7 @@ def prepare_features(df: pd.DataFrame, seed: int = RANDOM_STATE):
 
 def save_artifacts(model, pipeline: DocumentFeaturePipeline) -> None:
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
-    joblib.dump(model, MODEL_PATH)
+    joblib.dump(model, MODEL_PATH, compress=3)
     joblib.dump(pipeline, PIPELINE_PATH)
 
 
@@ -93,11 +93,15 @@ def _evaluate_random_splits(df: pd.DataFrame, protocol: str) -> List[FoldScore]:
     return scores
 
 
-def _evaluate_lodo(df: pd.DataFrame):
-    """LODO: tiap dokumen bergiliran jadi data uji. Juga mengumpulkan prediksi gabungan per model."""
+def _evaluate_lodo(df: pd.DataFrame, group_col: str = "doc_id"):
+    """LODO: tiap dokumen bergiliran jadi data uji. Juga mengumpulkan prediksi gabungan per model.
+
+    group_col menyatukan beberapa versi dari naskah yang sama (mis. asli + heading polos) agar
+    versi lain dari naskah uji tidak bocor ke data latih.
+    """
     scores, pooled = [], {name: ([], []) for name in candidate_models()}
-    for doc_id in df["doc_id"].unique():
-        train_df, test_df = df[df["doc_id"] != doc_id], df[df["doc_id"] == doc_id]
+    for doc_id in df[group_col].unique():
+        train_df, test_df = df[df[group_col] != doc_id], df[df[group_col] == doc_id]
         pipeline = DocumentFeaturePipeline(max_tfidf_features=MAX_TFIDF_FEATURES)
         X_train, X_test = pipeline.fit_transform(train_df), pipeline.transform(test_df)
         y_test = test_df["label"].values
@@ -183,7 +187,7 @@ def _limitations_section(df: pd.DataFrame) -> str:
     )
 
 
-def train_and_evaluate(dataset_csv: str = "data/dataset_skripsi.csv"):
+def train_and_evaluate(dataset_csv: str):
     print(f"=== MEMULAI PELATIHAN & EVALUASI MODEL DARI: {dataset_csv} ===")
     df = pd.read_csv(dataset_csv)
     unique_df = _deduplicate(df)
@@ -213,5 +217,103 @@ def train_and_evaluate(dataset_csv: str = "data/dataset_skripsi.csv"):
     return scores_df
 
 
+CORPUS_TRAIN_CSV = "data/corpus/dataset_latih.csv"
+CORPUS_TEST_CSV = "data/corpus/dataset_uji.csv"
+POLOS_SUFFIX = "_POLOS"  # dibuat tools/buat_heading_polos.py: dataset_<split>_polos.csv
+CORPUS_REPORT_PATH = "output/eval_report_korpus.md"
+# Model yang bisa dipakai di produksi: deploy Vercel tidak memuat xgboost (ukuran paket melebihi batas),
+# sehingga XGBoost tetap dievaluasi sebagai pembanding tetapi tidak dipilih sebagai model produksi.
+DEPLOYABLE_MODELS = (MODEL_LOGREG, MODEL_RF)
+
+
+def _with_polos(csv_path: str) -> pd.DataFrame:
+    """Dataset + versi heading polos-nya (bila ada). Kolom 'naskah' menyatukan kedua versi satu naskah."""
+    frames = [pd.read_csv(csv_path)]
+    polos_path = csv_path.replace(".csv", "_polos.csv")
+    if os.path.exists(polos_path):
+        frames.append(pd.read_csv(polos_path))
+    df = pd.concat(frames, ignore_index=True)
+    df["polos"] = df["doc_id"].str.endswith(POLOS_SUFFIX)
+    df["naskah"] = df["doc_id"].str.removesuffix(POLOS_SUFFIX)
+    return df
+
+
+def _fit_predict(model, train_df: pd.DataFrame, test_df: pd.DataFrame):
+    pipeline = DocumentFeaturePipeline(max_tfidf_features=MAX_TFIDF_FEATURES)
+    fitted = clone(model).fit(pipeline.fit_transform(train_df), train_df["label"].values)
+    return fitted, pipeline, fitted.predict(pipeline.transform(test_df))
+
+
+def train_on_corpus(train_csv: str = CORPUS_TRAIN_CSV, test_csv: str = CORPUS_TEST_CSV):
+    """Fase 1: latih di naskah latih, pilih model via LODO di naskah latih, uji SEKALI di naskah uji terpisah.
+
+    Naskah uji tidak pernah dipakai untuk melatih maupun memilih model, sehingga skornya
+    mewakili kinerja pada naskah mahasiswa yang belum pernah dilihat. Model produksi = model
+    terpilih yang dilatih pada seluruh naskah latih (sama persis dengan yang diuji).
+    """
+    train_df, test_df = _with_polos(train_csv), _with_polos(test_csv)
+    print(f"=== PELATIHAN KORPUS: {len(train_df)} baris latih ({train_df['doc_id'].nunique()} naskah), "
+          f"{len(test_df)} baris uji ({test_df['doc_id'].nunique()} naskah) ===")
+
+    print("[*] Pemilihan model: Leave-One-Document-Out pada naskah latih...")
+    lodo_scores, _ = _evaluate_lodo(train_df, group_col="naskah")
+    lodo_df = pd.DataFrame([s.__dict__ for s in lodo_scores])
+    lodo_f1 = lodo_df.groupby("model", sort=False)["macro_f1"].agg(["mean", "std"])
+    best = lodo_f1.loc[list(DEPLOYABLE_MODELS), "mean"].idxmax()
+
+    print("[*] Pengujian pada naskah uji terpisah...")
+    test_rows, preds, fitted = [], {}, {}
+    for name, model in candidate_models(RANDOM_STATE).items():
+        fitted[name], pipe, y_pred = _fit_predict(model, train_df, test_df)
+        preds[name] = y_pred
+        if name == best:
+            best_pipeline = pipe
+        y_true = test_df["label"].values
+        test_rows.append((name, accuracy_score(y_true, y_pred), f1_score(y_true, y_pred, average="macro", zero_division=0)))
+        subsets = [(doc_id, test_df["doc_id"] == doc_id) for doc_id in test_df["doc_id"].unique()]
+        if test_df["polos"].any():
+            subsets = [("semua naskah asli", ~test_df["polos"]), ("semua naskah heading polos", test_df["polos"])] + subsets
+        for label, mask in subsets:
+            m = mask.values
+            test_rows.append((f"{name} · {label}", accuracy_score(y_true[m], y_pred[m]),
+                              f1_score(y_true[m], y_pred[m], average="macro", zero_division=0)))
+
+    for name, acc, f1 in test_rows:
+        print(f"    {name:60s} akurasi {acc * 100:6.2f}%  macro-F1 {f1 * 100:6.2f}%")
+    print(f"[*] Model terpilih (macro-F1 LODO latih tertinggi di antara model yang bisa di-deploy): {best}")
+
+    save_artifacts(fitted[best], best_pipeline)
+    print(f"[SUKSES] Model produksi tersimpan di: {MODEL_PATH} | Pipeline: {PIPELINE_PATH}")
+
+    os.makedirs(os.path.dirname(CORPUS_REPORT_PATH), exist_ok=True)
+    with open(CORPUS_REPORT_PATH, "w", encoding="utf-8") as f:
+        f.write("# Laporan Evaluasi Model — Korpus Naskah TA\n\n")
+        f.write(f"**Tanggal Pengujian:** {date.today():%d-%m-%Y}\n")
+        f.write(f"**Data latih:** {len(train_df)} paragraf dari {train_df['naskah'].nunique()} naskah "
+                f"({'asli + versi heading polos' if train_df['polos'].any() else 'asli'})\n")
+        f.write(f"**Data uji:** {len(test_df)} paragraf dari {test_df['naskah'].nunique()} naskah "
+                f"({'asli + versi heading polos' if test_df['polos'].any() else 'asli'}) "
+                "(penulis berbeda, tidak dipakai saat pelatihan maupun pemilihan model)\n")
+        f.write("**Sumber label:** pra-label berbasis aturan, dikoreksi dengan bantuan AI; "
+                "verifikasi manual penulis belum selesai.\n\n---\n\n")
+        f.write("## 1. Pemilihan Model (Leave-One-Document-Out pada Naskah Latih)\n\n")
+        f.write("| Model | Macro-F1 (%) |\n|---|---|\n")
+        for name, r in lodo_f1.iterrows():
+            f.write(f"| {name} | {_pct(r['mean'], r['std'])} |\n")
+        f.write(f"\nModel terpilih: **{best}** — macro-F1 LODO tertinggi di antara model yang dapat di-deploy "
+                f"({', '.join(DEPLOYABLE_MODELS)}). XGBoost hanya menjadi pembanding karena pustakanya melebihi "
+                "batas ukuran paket deploy Vercel.\n\n")
+        f.write("## 2. Hasil pada Naskah Uji\n\n| Model / Naskah | Akurasi (%) | Macro-F1 (%) |\n|---|---|---|\n")
+        for name, acc, f1 in test_rows:
+            f.write(f"| {name} | {acc * 100:.2f} | {f1 * 100:.2f} |\n")
+        f.write(f"\n## 3. Metrik per Kelas Model Terpilih pada Naskah Uji: {best}\n\n")
+        for title, mask in (("Naskah asli", ~test_df["polos"]), ("Naskah heading polos", test_df["polos"])):
+            if mask.any():
+                f.write(f"### {title}\n\n" + _class_report_table(test_df["label"].values[mask.values], preds[best][mask.values]) + "\n\n")
+        f.write("Versi heading polos = naskah yang sama dengan gaya Heading/Caption/TOC diganti Normal "
+                "(tebal/ukuran/perataan dipertahankan), meniru mahasiswa yang tidak memakai gaya Word.\n")
+    print(f"[SUKSES] Laporan tersimpan di: {CORPUS_REPORT_PATH}")
+
+
 if __name__ == "__main__":
-    train_and_evaluate()
+    train_on_corpus()

@@ -1,8 +1,0 @@
-doc_id,para_id,text,is_monospace,font_name,font_size,has_math,label
-ASDOKU_1_TEMPLATE_UTUH,216,Accuracy = (TP + TN) / (TP + TN + FP + FN) (3.1),False,Times New Roman,12.0,False,EQUATION_FORMULA
-ASDOKU_1_TEMPLATE_UTUH,217,F1-Score = 2 * (Precision * Recall) / (Precision + Recall) (3.2),False,Times New Roman,12.0,False,EQUATION_FORMULA
-ASDOKU_1_TEMPLATE_UTUH,227,"def train_classifier(X_train, y_train):",True,Consolas,10.0,False,CODE_SNIPPET
-ASDOKU_1_TEMPLATE_UTUH,228,"model = RandomForestClassifier(n_estimators=100, random_state=42)",True,Consolas,10.0,False,CODE_SNIPPET
-ASDOKU_1_TEMPLATE_UTUH,229,"model.fit(X_train, y_train)",True,Consolas,10.0,False,CODE_SNIPPET
-ASDOKU_1_TEMPLATE_UTUH,230,return model,True,Consolas,10.0,False,CODE_SNIPPET
-ASDOKU_1_TEMPLATE_UTUH,231,"SELECT doc_id, para_id, label FROM corpus_skripsi WHERE is_bold = True;",True,Consolas,10.0,False,CODE_SNIPPET

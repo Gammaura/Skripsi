@@ -27,10 +27,13 @@
    - 5.6. Aturan Format Tambahan (Asumsi, Tidak Diatur Pedoman 2018)
 6. [Alur Kerja Sistem (End-to-End Workflow)](#6-alur-kerja-sistem-end-to-end-workflow)
 7. [Metodologi Dataset & Model Machine Learning](#7-metodologi-dataset--model-machine-learning)
+   - 7.1. Korpus Naskah TA
+   - 7.2. Performa Model (macro-F1)
 8. [Status Terkini & Hasil Pengujian Empiris](#8-status-terkini--hasil-pengujian-empiris)
-   - 8.1. Hasil Pengujian 5 Dokumen Uji Emas (Gold Datasets)
-   - 8.3. Temuan Active Learning: Label Lemah vs Label Manual
-   - 8.2. Analisis Temuan Terkini: Kasus Bab Laporan Magang vs Heading 1
+   - 8.1. Uji Ablasi
+   - 8.2. Uji Keutuhan Isi
+   - 8.3. Uji Regresi P1–P5
+   - 8.4. Temuan Active Learning: Label Lemah vs Label Manual
 9. [Panduan Penggunaan & Perintah CLI/Web](#9-panduan-penggunaan--perintah-cliweb)
 
 ---
@@ -51,91 +54,10 @@ Asdoku hadir sebagai solusi cerdas otonom: **mengubah dokumen mentah Word (.docx
 
 ## 2. Struktur Folder & File Workspace
 
-Berikut adalah peta struktur direktori lengkap dari repositori proyek Asdoku:
+Peta folder lengkap dan alur kerja penelitian ada di [`README.md`](../README.md) di akar repositori (diperbarui 9 November 2026).
+Ringkasnya: `App/` (aplikasi), `Data/` (naskah mentah, privat), `Document/` (proposal, pedoman, logbook, review).
 
-```
-/root/Gammaura/Skripsi/
-│
-├── app.py                         # Server Web Utama (FastAPI Multi-Page Application)
-├── main.py                        # Entry Point Eksekusi Pipeline Multi-Agent CLI
-├── LOGBOOK_PROGRES.md             # Catatan Rinci Seluruh Sesi Riset, Eksperimen & Pengujian
-├── RINGKASAN_PROYEK_ASDOKU.md     # Ringkasan Lengkap Arsitektur & Proyek (Dokumen Ini)
-├── app.log / server.log           # Log runtime eksekusi web server dan agen
-│
-├── src/                           # KODE SUMBER UTAMA (Multi-Agent System & ML)
-│   ├── active_learning.py         # Modul Active Learning & Continuous Retraining Loop
-│   ├── build_pure_training_data.py# Pembangun dataset latih murni dengan fitur terverifikasi
-│   ├── dataset_generator.py       # Ekstraktor teks & generator dataset dari dokumen docx
-│   ├── features.py                # Pipeline Feature Engineering (TF-IDF 400 + 17 Fitur OpenXML)
-│   ├── generate_7_datasets.py     # Generator 7 Pilar Dataset Master Akademik UEU
-│   ├── train.py                   # Script pelatihan model ML (Random Forest & Logistic Regression)
-│   │
-│   └── agents/                    # MODUL 3 AGEN CERDAS (TRI-AGENT ARCHITECTURE)
-│       ├── inspector.py           # AGENT 1: Detection & Hybrid Probabilistic Classifier
-│       ├── critic.py              # AGENT 2: Quality Critic, SQA Gatekeeper & Coordinator
-│       └── formatter.py           # AGENT 3: OpenXML Actuator & Document Rebuilder (2.600+ baris)
-│
-├── templates/                     # ANTARMUKA WEB MODERN (FastAPI HTML/CSS/JS Templates)
-│   ├── base.html                  # Master Template (Notion-style Warm Paper Theme, Header & Nav)
-│   ├── home.html                  # Halaman 1: Cover Seminar Proposal Elegan & Status Proyek
-│   ├── alat.html                  # Halaman 2: Studio Pengujian Dokumen .docx Interaktif
-│   ├── alat.js                    # Script Frontend: Stepper interaktif, SQA log, upload & download
-│   ├── data.html                  # Halaman 3: Metodologi Riset, Evaluasi Empiris, Confusion Matrix
-│   ├── flowchart.html             # Halaman 4: Visualisasi Interaktif Alur Kerja Sistem & Two-Tier SQA
-│   ├── pipeline.html              # Halaman 5: Arsitektur Tiga Agen Cerdas & Siklus Koordinasi
-│   ├── riwayat.html               # Halaman 6: Kronologi 5 Babak Riset & Catatan Sempro
-│   ├── info.html                  # Halaman 7: Glosarium 16 Istilah Teknis Akademik AI & OpenXML
-│   ├── footer.html                # Komponen Footer Konsisten
-│   └── navbar.html                # Komponen Navigasi Utama
-│
-├── models/                        # MODEL MACHINE LEARNING TERLATIH (.joblib)
-│   ├── baseline_model.joblib      # Model Random Forest Terlatih (Akurasi 93.71% - 98.4%)
-│   └── feature_pipeline.joblib    # Sklearn Feature Pipeline Ter-serialize
-│
-├── data/                          # DATASET, TEMPLATE & UPLOADS
-│   ├── active_learning_feedback.csv   # Pool data koreksi runtime dari Agent 2 (Active Learning)
-│   ├── dataset_skripsi.csv        # Dataset Master gabungan (1.700+ sampel paragraf)
-│   ├── template_clean_ueu.docx    # Template Murni Standar UEU 2018 (Section & Styles)
-│   ├── logo_ueu.png               # Aset Resmi Logo Universitas Esa Unggul (3 cm)
-│   │
-│   ├── datasets/                  # 7 Dataset Tematik (The 7 Pillars of Academic Papers)
-│   │   ├── dataset_1_cover_frontmatter.csv
-│   │   ├── dataset_2_zoning.csv
-│   │   ├── dataset_3_headings_vs_lists.csv
-│   │   ├── dataset_4_figures.csv
-│   │   ├── dataset_5_tables.csv
-│   │   ├── dataset_6_code_formulas.csv
-│   │   └── dataset_7_body_bibliography.csv
-│   │
-│   ├── dokumen_uji/               # Koleksi Dokumen Mentah untuk Pengujian Sistem
-│   │   └── P1_Template_Resmi_UEU.docx
-│   └── uploads/                   # Direktori temporer dokumen yang diunggah via Web Studio
-│
-├── output/                        # ARTIFAK HASIL PEMFORMATAN OPENXML
-│   ├── (Asdoku) - Hasil_Skripsi_Rapi.docx # Output standar hasil pipeline
-│   ├── eval_report_baseline.md    # Laporan metrik evaluasi model awal
-│   ├── eval_report_expanded.md    # Laporan metrik model setelah ekspansi dataset
-│   └── pengujian/                 # Hasil uji 5 dokumen emas resmi
-│       ├── (Asdoku) - P1_Template_Resmi_UEU.docx
-│       ├── (Asdoku) - P2_Skripsi_Mbkm_Dhicky.docx
-│       ├── (Asdoku) - P3_Proposal_Bab1_3_PBB.docx
-│       ├── (Asdoku) - P4_Laporan_Mbkm_Arditya.docx
-│       └── (Asdoku) - P5_Buku_TA_Landscape.docx
-│
-├── docs/pedoman/                  # DOKUMEN REGULASI RESMI
-│   ├── PEDOMAN PENULISAN SKRIPSI 2018.docx # Salinan SK Rektor UEU 2018 (.docx)
-│   └── PEDOMAN PENULISAN SKRIPSI 2018.pdf  # Salinan SK Rektor UEU 2018 (.pdf)
-│
-├── tests/                         # UNIT & INTEGRATION TESTS
-│   └── test_all_documents.py      # Pengujian otomatis batch terhadap seluruh dokumen uji
-│
-└── scratch/                       # AREA EKSPERIMEN & VERIFIKASI SEMENTARA
-    ├── verify_full_system.py      # Script verifikasi end-to-end integritas dokumen
-    ├── test_toc_and_spacing.py    # Pengujian field dinamis TOC & XML spacing
-    └── ... (berbagai script eksperimen ekstraksi XML dan verifikasi rendering)
-```
 
----
 
 ## 3. Arsitektur Multi-Agent System (MAS)
 
@@ -384,73 +306,49 @@ sequenceDiagram
 
 ## 7. Metodologi Dataset & Model Machine Learning
 
-### 7.1. 7 Pilar Dataset Skripsi (The 7 Master Datasets)
-Untuk memastikan model ML memiliki generalisasi tinggi terhadap naskah akademik yang beragam, dataset dibagi menjadi 7 domain persoalan di [`data/datasets/`](file:///root/Gammaura/Skripsi/data/datasets/):
-1. **Dataset 1 (Cover & Frontmatter):** Metadata sampul, lembar persetujuan/pengesahan, kata pengantar, abstrak.
-2. **Dataset 2 (Zoning & Transisi Seksi):** Segmentasi zona dokumen dan batas transisi halaman.
-3. **Dataset 3 (Headings vs Lists):** Membedakan tajuk bab/sub-bab dengan rincian poin (1., a., bullet).
-4. **Dataset 4 (Figures & Visuals):** Elemen visual gambar, caption bawah, dan sumber ilustrasi.
-5. **Dataset 5 (Tables & Data):** Struktur tabel, caption atas, header kolom, dan sumber data.
-6. **Dataset 6 (Formulas & Equations):** Notasi matematika, persamaan aljabar, dan blok kode program.
-7. **Dataset 7 (Body & Bibliography):** Paragraf isi umum, kutipan langsung blok, dan entri daftar pustaka.
+> Diperbarui 9 November 2026. Dataset lama (Dataset Asdoku 1–4, `dataset_skripsi.csv`, 7 dataset spesialis) **dipensiunkan**:
+> labelnya dibuat aturan (bukan manusia) dan sebagian dokumen uji ikut dilatih, sehingga angka lama (≈97%) tidak valid.
 
-### 7.2. Performa Model Machine Learning
-Sumber: [`output/eval_report_expanded.md`](file:///root/Gammaura/Skripsi/App/output/eval_report_expanded.md) (hasil `python3 src/train.py`, 27-10-2026), dataset [`data/dataset_skripsi.csv`](file:///root/Gammaura/Skripsi/App/data/dataset_skripsi.csv): 537 paragraf (159 unik) dari 4 dokumen, 9 kelas. Model produksi dipilih berdasarkan macro-F1 tertinggi pada protokol *Leave-One-Document-Out* (LODO).
+### 7.1. Korpus Naskah TA
+* **Sumber:** 7 naskah Word asli dari 7 penulis FIK UEU (6 TA, 1 proposal), dengan izin. Nama dianonimkan: latih `L01–L05`, uji `U01–U02`.
+* **Satuan:** paragraf, 9 label struktur. Latih 4.693 paragraf, uji 2.664 paragraf. Pembagian **per naskah**.
+* **Versi heading polos:** salinan setiap naskah dengan gaya Heading/Caption/TOC diganti Normal (tampilan tetap), meniru naskah yang
+  hanya ditebalkan. Ikut naskah asalnya (latih→latih, uji→uji).
+* **Pelabelan:** mengikuti Pedoman Anotasi v1.1 (Lampiran 1); pra-label aturan → dikoreksi (saat ini dengan bantuan AI; verifikasi manual penulis + Cohen's kappa anotator kedua belum).
+* **Fitur:** TF-IDF (400) + 20 tipografi/tata letak + 7 gaya Word + 10 pola teks.
 
-| Model (LODO) | Akurasi (%) | Macro-F1 (%) | Status |
-| :--- | :---: | :---: | :---: |
-| **Random Forest (Balanced)** | **94.39 ± 10.65** | **90.51 ± 17.89** | **Model Produksi** |
-| Logistic Regression (Balanced) | 91.02 ± 12.39 | 89.26 ± 15.31 | Pembanding |
-| XGBoost (Balanced) | 93.07 ± 10.18 | 88.56 ± 17.99 | Pembanding |
+### 7.2. Performa Model (macro-F1)
+| Model | Uji silang naskah latih (LODO) | Naskah uji · asli | Naskah uji · polos |
+|---|:---:|:---:|:---:|
+| Logistic Regression | 88,83 ± 3,50 | 86,57 | 82,59 |
+| **Random Forest (produksi)** | **94,70 ± 4,19** | **93,79** | **92,41** |
+| XGBoost (pembanding) | 91,72 ± 7,57 | 71,59 | 69,69 |
 
---- | :---: | :---: | :---: | :---: | :---: |
-| **Random Forest (Balanced, n=100)** | **93.71%** | **0.884** | **0.936** | **~0.04 detik** | **Model Utama (Active)** |
-| **Logistic Regression (Balanced)** | 88.57% | 0.812 | 0.887 | ~0.01 detik | Pembanding Baseline |
+Sumber: `App/output/eval_report_korpus.md`.
 
 ---
 
 ## 8. Status Terkini & Hasil Pengujian Empiris
 
-### 8.1. Pengujian 5 Dokumen Uji (27-10-2026)
-Hasil `tests/test_all_documents.py` dengan kode terkini. Kolom *Kesesuaian ML* = persentase paragraf berteks yang tebakan Agent 1 (ML murni) sama dengan label akhir Agent 2; angka ini mengukur kesesuaian terhadap aturan, **bukan** akurasi terhadap label manusia.
+### 8.1. Uji Ablasi (naskah uji, macro-F1) — `App/output/eval_ablasi.md`
+| Konfigurasi | Asli | Polos |
+|---|:---:|:---:|
+| Agen 1 saja | 93,79 | 92,41 |
+| Aturan Agen 2 saja | 96,79 | 94,16 |
+| Sistem multi-agen | **98,90** | **96,35** |
 
-| ID | Paragraf (berteks) | Koreksi Agent 2 | Kesesuaian ML | Ambigu (conf < 0,70) | Kueri ke Pengguna | SQA Tier 1 | SQA Tier 2 | Waktu (s) |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **P1** Template Resmi UEU | 248 (174) | 13 | 92.5% | 22 | 7 | CONVERGED (2 it) | 100% (8/8) | 0.84 |
-| **P2** Skripsi MBKM | 381 (266) | 97 | 63.5% | 247 | 20 | CONVERGED (2 it) | 100% (8/8) | 1.83 |
-| **P3** Proposal Bab 1-3 | 177 (173) | 45 | 74.0% | 162 | 20 | CONVERGED (2 it) | 100% (8/8) | 0.79 |
-| **P4** Laporan MBKM | 394 (265) | 83 | 68.7% | 216 | 20 | CONVERGED (2 it) | 100% (8/8) | 1.46 |
-| **P5** Buku TA Landscape | 250 (153) | 23 | 85.0% | 117 | 20 | CONVERGED (2 it) | 100% (8/8) | 0.84 |
+Catatan validitas: beberapa aturan Agen 2 diperbaiki setelah melihat naskah uji (9 Nov 2026). Perlu naskah uji baru untuk konfirmasi.
 
-Kesesuaian ML pada naskah nyata (63,5–92,5%; diperbarui setelah aturan judul poin pada Sesi 29) lebih rendah daripada akurasi LODO pada data latih (94,39%), yang menunjukkan celah generalisasi model ke naskah mahasiswa yang beragam; Agent 2 menutup celah tersebut sebelum dokumen diformat.
+### 8.2. Uji Keutuhan Isi — `App/output/eval_keutuhan.md`
+Pada U01, U02, P1, P2, P3, P5: gambar, tabel, rumus, catatan kaki, sitasi Mendeley sama sebelum/sesudah; cakupan teks 100%.
+Semua hasil dibuka di Microsoft Word asli setelah pembaruan field: 0 rujukan silang rusak.
 
-### 8.2. Analisis Temuan Terkini: Kasus Bab Laporan Magang vs Heading 1
-Pada pengujian naskah non-skripsi (seperti Laporan Magang / Kerja Praktik), ditemukan kasus di mana bab setelah Bab 2 (misalnya `BAB 3 PROFIL PERUSAHAAN` dan `BAB 4 RISET DAN PEMBAHASAN`) tidak dikenali sebagai Heading 1, sehingga sub-bab di bawahnya membengkak hingga penomoran **`2.26`**.
+### 8.3. Uji Regresi P1–P5
+P4 (laporan magang) dikeluarkan karena di luar lingkup. P1, P2, P3, P5: SQA 100% (8 kriteria), struktur XML valid.
 
-**Akar Masalah:**
-1. Kata `"PROFIL PERUSAHAAN"` terdaftar pada kamus sub-bab skripsi standar.
-2. Frasa `"RISET DAN PEMBAHASAN"` belum terdaftar dalam kamus bab kanonikal skripsi.
-3. Saat Bab 3 gagal diakui sebagai bab baru, nomor bab aktif terkunci di angka 2, sehingga seluruh sub-bab setelahnya dihitung berlanjut dari Bab 2.
-
-**Solusi Arsitektural (5 Lapisan Guardrail):**
-1. **Regex Priority Pattern:** Setiap teks yang diawali pola `^BAB\s+([IVX\d]+)` langsung ditetapkan sebagai `JUDUL_BAB` (Heading 1) tanpa dibatasi oleh kamus kata skripsi.
-2. **Preservasi Style Word:** Paragraf yang telah ber-style asli `Heading 1` di Word tidak boleh diturunkan paksa.
-3. **Filter Anti-Jebakan Sub-bab 1.7:** Mencegah baris "Rencana Penulisan Bab 1-4" di Sub-bab 1.7 memicu bab baru dengan memeriksa:
-   - Apakah teks ber-style `Heading 2` / diawali nomor `1.x`? (Tolak jadi bab).
-   - Apakah memuat lebih dari 1 bab dalam satu baris? (Tolak jadi bab).
-   - Apakah memiliki titik dua (`:`) dan kata kerja naratif (*membahas, berisi, menjelaskan*)? (Tolak jadi bab).
-   - Apakah berada di halaman baru (*pageBreakBefore*)? (Hanya bab asli yang berada di halaman baru).
-
-### 8.3. Temuan Active Learning: Label Lemah vs Label Manual
-Uji non-regresi pada split uji data basis (n = 108 paragraf). **Catatan validitas:** label data basis dihasilkan otomatis oleh aturan `build_pure_training_data.py`, bukan anotasi manusia, sehingga angka di bawah mengukur kesesuaian dengan aturan pelabelan tersebut:
-
-| Data Latih Kandidat | Macro-F1 | Keputusan |
-| :--- | :---: | :---: |
-| Basis saja (pembanding) | 0.9202 | - |
-| Basis + 5 label manual | **0.9306** | Diterima |
-| Basis + label manual + 602 weak label Agent 2 | 0.6939 | Ditolak |
-
-Weak label dari Agent 2 menurunkan kinerja secara tajam. Dugaan penyebabnya: banyak koreksi Agent 2 ditentukan oleh **konteks dokumen** (misalnya "berada sebelum Bab 1" atau "di dalam Daftar Pustaka"), sedangkan model hanya melihat fitur per paragraf, sehingga label tersebut tampak kontradiktif bagi model. Karena itu weak label hanya dicatat, dan retraining dipicu oleh label manual. Model produksi saat ini terverifikasi dilatih dari dataset basis saja (prediksinya identik 100% dengan model yang dilatih ulang dari `dataset_skripsi.csv`).
+### 8.4. Temuan Active Learning: Label Lemah vs Label Manual
+Weak label Agen 2 tetap hanya dicatat (tidak memicu retraining) karena terbukti menurunkan kinerja. Basis retraining sekarang
+`data/corpus/dataset_latih.csv`; bila korpus tidak tersedia (deploy Vercel), retraining dilewati.
 
 ---
 
@@ -473,7 +371,7 @@ python3 main.py "data/dokumen_uji/P1_Template_Resmi_UEU.docx" "output/(Asdoku) -
 
 ### Melatih Ulang Model Machine Learning:
 ```bash
-python3 src/train.py
+python3 -m src.train
 ```
 
 ### Menjalankan Pengujian Otomatis Seluruh Dokumen:
