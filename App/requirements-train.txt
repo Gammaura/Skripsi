@@ -1,4 +1,4 @@
 -r requirements.txt
 # Hanya untuk pelatihan/eksperimen model (src/train.py). Tidak wajib untuk deploy
 # selama model produksi bukan XGBoost.
-xgboost>=2.0.0
+xgboost==3.2.0

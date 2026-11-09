@@ -132,7 +132,8 @@ def rule_prior_label(features: dict) -> Optional[Tuple[str, str]]:
             return LABEL_BODY, "Kalimat naratif yang diawali 'Gambar/Tabel X' (bukan caption)."
         return caption, "Pola caption bernomor 'Gambar/Tabel X.Y'."
 
-    if word_count <= 8 and not text.endswith(".") and upper.startswith(SUBCHAPTER_TITLES):
+    is_intro_sentence = text.endswith(":") and word_count > 3  # "Rumusan masalah ... sebagai berikut:"
+    if word_count <= 8 and not text.endswith(".") and not is_intro_sentence and upper.startswith(SUBCHAPTER_TITLES):
         return LABEL_SUBCHAPTER, "Nama Sub-Bab baku UEU."
     if features["style"] in SUBHEADING_STYLES or re.match(r"^\d+\.\d+(\.\d+)*\b", text):
         return LABEL_SUBCHAPTER, "Style Heading 2/3 atau penomoran Sub-Bab."

@@ -990,3 +990,9 @@ Naskah proposal tugas akhir peneliti (draf Markdown → pandoc → `.docx`) dija
 #### 5. Struktur repositori:
 * `README.md` akar berisi peta folder dan alur kerja. `Document/Proposal_TA/` dipecah menjadi `naskah/`, `lampiran/`, `diagram/`, `arsip/`; `Document/docs/pedoman` → `Document/Pedoman`; aset web → `App/static/img/`; `Data/` dikelompokkan per penulis + `Data/README.md`.
 * Catatan review pembimbing/penguji: `Document/Review/`.
+
+#### 6. Tambahan (9 November 2026, sore):
+* Judul bagian berhuruf ("A. Latar Belakang") dikenali sebagai sub-bab dan dinomori ulang (1.1); di bawah sub-bab bernomor menjadi sub-sub-bab (2.1.1). Daftar berhuruf berurutan dan huruf kecil ("a.") tetap butir list. Diuji dengan naskah sintetis, diverifikasi di Word.
+* Kalimat pengantar berakhiran titik dua ("Rumusan masalah penelitian ini adalah sebagai berikut:") tidak lagi dianggap sub-bab.
+* Desain tabel (garis horizontal tiap baris, tanpa vertikal) dan spasi list (3 pt antarbutir) dikonfirmasi peneliti; tidak diubah.
+* Versi pustaka dikunci di `requirements*.txt` (scikit-learn 1.7.0 sesuai model). Branch digabung ke `main` dan di-push untuk deploy Vercel.

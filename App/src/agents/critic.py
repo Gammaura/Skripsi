@@ -73,6 +73,9 @@ SOURCE_NOTE_RE = re.compile(r"^(Sumber|Source|Catatan|Note)\s*[:=]", re.IGNORECA
 NUMBERED_LIST_RE = re.compile(r"^(\d+|[a-zA-Z])[\.\)]\s*")
 # Judul poin bernomor ('1. Kontribusi Teori') yang diikuti paragraf penjelasan -> sub-sub-bab
 POINT_HEADING_RE = re.compile(r"^\d{1,2}\.\s+(\S.*)$")
+# Judul bagian berhuruf kapital ('A. Latar Belakang') yang dipakai sebagian mahasiswa sebagai pengganti 1.1
+LETTER_HEADING_RE = re.compile(r"^[A-Z][.)]\s+(\S.*)$")
+MAX_LETTER_HEADING_WORDS = 10
 MAX_POINT_HEADING_WORDS = 8
 MIN_EXPLANATION_WORDS = 8
 CITATION_RES = (re.compile(r"^\([^\)]+,\s*\d{4}[a-z]?\)$"), re.compile(r"^[A-Z][a-zA-Z\s\.,\-]+\s*\(\d{4}[a-z]?\)\."))
@@ -146,6 +149,8 @@ def _is_standard_subchapter(stripped: str, upper_np: str, word_count: int) -> bo
     """
     if word_count > 10 or not upper_np.startswith(SUBCHAPTER_TITLES):
         return False
+    if stripped.endswith(":") and word_count > 3:
+        return False  # kalimat pengantar daftar: "Rumusan masalah penelitian ini adalah sebagai berikut:"
     _, colon, after_colon = upper_np.partition(":")
     if colon and after_colon.strip():
         return False
@@ -214,6 +219,7 @@ class _StructureAuditor:
         self.in_formula_legend = False
         self.formula_legend_count = 0
         self.awaiting_chapter_title = False
+        self.letter_heading_subsub: Optional[bool] = None  # tingkat judul 'A.' di bab aktif (None = belum ada)
 
     def audit(self, item: Dict[str, Any], next_item: Optional[Dict[str, Any]], pred: str,
               next_content: Optional[Dict[str, Any]] = None) -> Tuple[str, Optional[str]]:
@@ -251,7 +257,12 @@ class _StructureAuditor:
         is_title_line = self._is_chapter_title_line(s, inferred_bab)
         meta["chapter_title_continuation"] = is_title_line
         is_point_heading = not is_title_line and self._is_point_heading(s, item, next_content)
-        if is_title_line:
+        is_letter_heading = not (is_title_line or is_point_heading) and self._is_letter_heading(s, item, next_content)
+        meta["letter_heading"] = is_letter_heading
+        if is_letter_heading:
+            decision = (LABEL_SUBCHAPTER, None if pred == LABEL_SUBCHAPTER else
+                        "Judul bagian berhuruf ('A. ...') yang diikuti paragraf penjelasan dijadikan Sub-Bab (nomor huruf diganti 1.1).")
+        elif is_title_line:
             decision = (LABEL_CHAPTER, None if pred == LABEL_CHAPTER else "Teks adalah judul Bab yang ditulis di baris terpisah setelah 'BAB X'.")
         elif is_point_heading:
             meta["is_subsub"] = True
@@ -313,6 +324,7 @@ class _StructureAuditor:
     def _start_chapter(self, bab_num: int, s: _Signals) -> None:
         self.last_bab = bab_num
         self.active_heading2 = False
+        self.letter_heading_subsub = None
         literal = BAB_LITERAL_RE.match(s.upper_np)
         self.awaiting_chapter_title = bool(literal) and not s.upper_np[literal.end():].strip(" :.-")
 
@@ -334,6 +346,26 @@ class _StructureAuditor:
             return False
         next_text = next_content["text"].strip()
         return not NUMBERED_LIST_RE.match(next_text) and len(next_text.split()) >= MIN_EXPLANATION_WORDS
+
+    def _is_letter_heading(self, s: _Signals, item: Dict[str, Any], next_content: Optional[Dict[str, Any]]) -> bool:
+        """'A. Latar Belakang' (huruf kapital + titik, pendek, tebal atau berformat judul, bukan kalimat) di dalam
+        bab dan diikuti isi bagian. Bukan judul bila baris berikutnya juga butir huruf ('B. ...'), karena itu
+        menandakan daftar berhuruf, atau bila hurufnya kecil ('a.' tetap butir list)."""
+        if (self.last_bab < 1 or self.in_bibliography or self.in_sistematika or self.in_formula_legend
+                or next_content is None):
+            return False
+        match = LETTER_HEADING_RE.match(s.stripped)
+        if match is None:
+            return False
+        title = match.group(1).strip()
+        words = title.split()
+        if len(words) > MAX_LETTER_HEADING_WORDS or title.endswith(SENTENCE_ENDINGS):
+            return False
+        is_title_case = all(w[0].isupper() for w in words if w.lower() not in TITLE_CASE_SMALL_WORDS and w[0].isalpha())
+        if not (item["raw_features"].get("is_bold") or s.style.startswith("Heading") or is_title_case):
+            return False
+        next_text = next_content["text"].strip()
+        return not LETTER_HEADING_RE.match(next_text) or len(next_text.split()) > MAX_LETTER_HEADING_WORDS
 
     def _is_chapter_title_line(self, s: _Signals, inferred_bab: int) -> bool:
         """Baris judul tepat setelah 'BAB X' tanpa judul, mis. 'BAB I' lalu 'PENDAHULUAN'."""
@@ -485,6 +517,15 @@ class _StructureAuditor:
 
     def _assign_heading_level(self, s: _Signals, meta: Dict[str, Any]) -> None:
         """Heading 2 vs Heading 3: sub-heading tanpa penanda eksplisit di bawah Heading 2 aktif menjadi Heading 3."""
+        if meta.get("letter_heading"):
+            # Semua judul 'A.', 'B.', ... dalam satu bab setingkat: Sub-Bab bila bab belum punya sub-bab bernomor,
+            # Sub-Sub-Bab bila muncul di bawah sub-bab 1.1.
+            if self.letter_heading_subsub is None:
+                self.letter_heading_subsub = self.active_heading2
+            meta["is_subsub"] = self.letter_heading_subsub
+            if not self.letter_heading_subsub:
+                self.active_heading2 = True
+            return
         is_explicit_subsub = bool(meta.get("is_subsub") or meta.get("style") in HEADING3_STYLES or SUBSUB_NUMBER_RE.match(s.stripped))
         is_explicit_heading2 = bool(
             meta.get("style") in ("Heading 2", "Heading2")
