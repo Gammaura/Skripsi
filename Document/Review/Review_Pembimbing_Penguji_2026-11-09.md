@@ -19,8 +19,8 @@ Posisi angka saat ini (naskah uji U01–U02, macro-F1), untuk rujukan:
 | Konfigurasi | Naskah asli | Naskah heading polos |
 |---|:---:|:---:|
 | Agen 1 saja (Random Forest) | 93,79 | 92,41 |
-| Aturan Agen 2 saja | 96,79 | 94,16 |
-| Sistem multi-agen | 98,90 | 96,35 |
+| Aturan Agen 2 saja | 96,76 | 95,88 |
+| Sistem multi-agen | 98,86 | 97,99 |
 
 Angka ini **belum boleh dikutip sebagai hasil penelitian**. Alasannya ada di K1 dan K2.
 
@@ -80,7 +80,7 @@ H0: proporsi paragraf yang benar pada sistem multi-agen sama dengan Agen 1 saja.
 H1: sistem multi-agen lebih tinggi.
 Uji: **McNemar** berpasangan per paragraf (keduanya menilai paragraf yang sama). Karena paragraf dalam satu naskah tidak saling bebas, tambahkan perbandingan per naskah sebagai pendukung.
 
-**P3. Jelaskan kenapa akurasi dan macro-F1 kadang berlawanan.** Pada naskah polos, akurasi sistem multi-agen (97,8%) lebih rendah daripada Agen 1 (98,6%), padahal macro-F1-nya lebih tinggi. Artinya Agen 2 memperbaiki kelas kecil (judul bab, caption, sampul) tapi menambah kesalahan di kelas besar. Siapkan **analisis kesalahan per kelas**: kelas mana yang diperbaiki Agen 2, kelas mana yang dirusaknya, dan contoh paragrafnya. Proposal sudah menjanjikan analisis ini (Bab IV), jadi jangan sampai hilang.
+**P3. Siapkan analisis kesalahan per kelas.** Sempat terjadi akurasi sistem multi-agen lebih rendah daripada Agen 1 pada naskah polos, padahal macro-F1-nya lebih tinggi: Agen 2 memperbaiki kelas kecil (judul bab, caption, sampul) tetapi merusak kelas besar (aturan "butir bernomor = isi" menurunkan judul bernomor otomatis). Setelah diperbaiki (9 Nov, dari naskah latih L03), akurasi MAS 99,25% vs Agen 1 98,61%. Pola seperti ini bisa muncul lagi di naskah uji baru. Siapkan **analisis kesalahan per kelas**: kelas mana yang diperbaiki Agen 2, kelas mana yang dirusaknya, dan contoh paragrafnya. Proposal sudah menjanjikan analisis ini (Bab IV), jadi jangan sampai hilang.
 
 **P4. Data "heading polos" adalah simulasi.** Versi polos menghilangkan gaya Heading tetapi juga menghilangkan nomor otomatis. Ini kasus ekstrem, dan belum tentu mewakili naskah nyata yang tidak memakai gaya. Jangan mengklaim "tangguh untuk naskah tanpa gaya" hanya dari data simulasi. Kalau bisa, cari 1–2 naskah asli yang judulnya hanya ditebalkan, lalu uji. Tulis juga kasus gagal yang diketahui: di versi polos L05, sub-bab "Hasil" masih terbaca sebagai judul bab.
 

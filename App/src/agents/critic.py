@@ -23,6 +23,7 @@ from src.academic_rules import (
     CHAPTER_TITLES_BY_NUMBER,
     FRONTMATTER_TITLES,
     HEADING3_STYLES,
+    LABEL_BIBLIOGRAPHY,
     LABEL_BODY,
     LABEL_CHAPTER,
     LABEL_COVER,
@@ -38,6 +39,7 @@ from src.academic_rules import (
     SUBHEADING_STYLES,
     SUBSUB_NUMBER_RE,
     caption_kind,
+    is_frontmatter_title_text,
     is_narrative_caption,
     rule_prior_label,
 )
@@ -80,10 +82,10 @@ MAX_POINT_HEADING_WORDS = 8
 MIN_EXPLANATION_WORDS = 8
 CITATION_RES = (re.compile(r"^\([^\)]+,\s*\d{4}[a-z]?\)$"), re.compile(r"^[A-Z][a-zA-Z\s\.,\-]+\s*\(\d{4}[a-z]?\)\."))
 CAPTION_WORD_RE = re.compile(r"^(Gambar|Figure|Tabel|Table)\b", re.IGNORECASE)
-CAPTION_NUMBER_RE = re.compile(r"^(?:Gambar|Figure|Tabel|Table)\s*(\d+)[\.\-](\d+)", re.IGNORECASE)
+CAPTION_NUMBER_RE = re.compile(r"^(?:Gambar|Figure|Tabel|Table)\s*(\d+)\s?[\.\-]\s?(\d+)", re.IGNORECASE)
 # Nomor halaman di ujung baris Daftar Isi/Tabel/Gambar: angka 1-3 digit atau Romawi huruf kecil.
 UNLISTED_CHAPTER_MIN_CONFIDENCE = 0.8
-TOC_PAGE_NUMBER_RE = re.compile(r"\s(\d{1,3}|[ivxlc]{1,6})$")
+TOC_PAGE_NUMBER_RE = re.compile(r"(\s|[.…]{2,})(\d{1,3}|[ivxlc]{1,6})$")  # "Judul 12" atau "Judul ……..12"
 TOC_STYLE_RE = re.compile(r"^(toc \d|table of figures)$", re.IGNORECASE)
 H1_BAB_TEXT_RE = re.compile(r"BAB\s+(\d+|[IVXLCDM]+)", re.IGNORECASE)
 FRONTMATTER_H1_MARKERS = ("DAFTAR", "ABSTRAK", "ABSTRACT", "LAMPIRAN", "PERNYATAAN", "PENGESAHAN", "PERSETUJUAN", "KATA PENGANTAR", "PRAKATA", "RIWAYAT")
@@ -131,7 +133,7 @@ class _Signals:
 def _is_frontmatter_title(upper: str, upper_np: str, word_count: int) -> bool:
     if word_count > 10 or upper.startswith(("BAB ", "BAB I", "BAB 1")):
         return False
-    return any(upper_np == fm or upper_np.startswith((fm + " ", fm + ":")) for fm in FRONTMATTER_TITLES)
+    return is_frontmatter_title_text(upper)
 
 
 def _is_formula(text: str, meta: Dict[str, Any]) -> bool:
@@ -259,7 +261,14 @@ class _StructureAuditor:
         is_point_heading = not is_title_line and self._is_point_heading(s, item, next_content)
         is_letter_heading = not (is_title_line or is_point_heading) and self._is_letter_heading(s, item, next_content)
         meta["letter_heading"] = is_letter_heading
-        if is_letter_heading:
+        is_auto_numbered_heading = (not (is_title_line or is_point_heading or is_letter_heading or is_real_chapter)
+                                    and pred != LABEL_CHAPTER and not s.style.lower().startswith("heading 1")
+                                    and inferred_bab == 0 and not s.is_frontmatter
+                                    and self._is_auto_numbered_heading(s, item, next_content))
+        if is_auto_numbered_heading:
+            decision = (LABEL_SUBCHAPTER, None if pred == LABEL_SUBCHAPTER else
+                        "Judul tebal bernomor otomatis yang diikuti paragraf penjelasan dijadikan Sub-Bab.")
+        elif is_letter_heading:
             decision = (LABEL_SUBCHAPTER, None if pred == LABEL_SUBCHAPTER else
                         "Judul bagian berhuruf ('A. ...') yang diikuti paragraf penjelasan dijadikan Sub-Bab (nomor huruf diganti 1.1).")
         elif is_title_line:
@@ -269,7 +278,7 @@ class _StructureAuditor:
             decision = (LABEL_SUBCHAPTER, "Judul poin bernomor yang diikuti paragraf penjelasan dijadikan Sub-Sub-Bab (mis. 1.4.1).")
         else:
             decision = self._decide(s, item, pred, inferred_bab, is_real_chapter, is_variable_item)
-        meta["is_bibliography"] = self.in_bibliography and decision is not None and decision[0] == LABEL_BODY
+        meta["is_bibliography"] = self.in_bibliography and decision is not None and decision[0] in (LABEL_BODY, LABEL_BIBLIOGRAPHY)
         if decision is not None:
             final, reason = decision
         else:
@@ -347,6 +356,23 @@ class _StructureAuditor:
         next_text = next_content["text"].strip()
         return not NUMBERED_LIST_RE.match(next_text) and len(next_text.split()) >= MIN_EXPLANATION_WORDS
 
+    def _is_auto_numbered_heading(self, s: _Signals, item: Dict[str, Any], next_content: Optional[Dict[str, Any]]) -> bool:
+        """Judul bagian yang memakai penomoran otomatis Word (gaya List Paragraph/numPr, tanpa nomor diketik):
+        pendek, tebal, bukan kalimat, dan diikuti paragraf penjelasan yang bukan butir list. Tanpa ini
+        aturan 'butir list -> paragraf isi' menurunkan judul seperti 'Jaringan Penelitian'."""
+        if (self.last_bab < 1 or self.in_bibliography or self.in_sistematika or self.in_formula_legend
+                or next_content is None):
+            return False
+        if not (item["metadata"].get("has_num") or s.style == "List Paragraph"):
+            return False
+        if (not item["raw_features"].get("is_bold") or s.word_count > MAX_POINT_HEADING_WORDS
+                or s.stripped.endswith(SENTENCE_ENDINGS) or s.is_citation or s.is_formula_legend
+                or s.is_hypothesis or s.is_source_note or VARIABLE_ITEM_RE.search(s.stripped)):
+            return False
+        next_text = next_content["text"].strip()
+        next_is_list = bool(next_content["metadata"].get("has_num")) or bool(NUMBERED_LIST_RE.match(next_text))
+        return not next_is_list and len(next_text.split()) >= MIN_EXPLANATION_WORDS
+
     def _is_letter_heading(self, s: _Signals, item: Dict[str, Any], next_content: Optional[Dict[str, Any]]) -> bool:
         """'A. Latar Belakang' (huruf kapital + titik, pendek, tebal atau berformat judul, bukan kalimat) di dalam
         bab dan diikuti isi bagian. Bukan judul bila baris berikutnya juga butir huruf ('B. ...'), karena itu
@@ -409,8 +435,9 @@ class _StructureAuditor:
             return self._cover_or_body(s, pred), reason
 
         if self.in_bibliography:
-            reason = "Teks berada di dalam bagian Daftar Pustaka (dialihkan ke BODY_PARAGRAPH)." if pred in (LABEL_SUBCHAPTER, LABEL_CHAPTER) else None
-            return LABEL_BODY, reason
+            label = LABEL_BIBLIOGRAPHY if s.stripped else LABEL_BODY
+            reason = None if pred == label else "Teks berada di dalam bagian Daftar Pustaka (entri rujukan)."
+            return label, reason
 
         if self.last_bab == LAST_CHAPTER and s.upper_np in ("KESIMPULAN", "SARAN"):
             return LABEL_SUBCHAPTER, "Teks 'Kesimpulan' atau 'Saran' berada di bawah Bab V (Sub-Bab)."

@@ -106,6 +106,24 @@ def is_narrative_caption(text: str, label: str) -> bool:
     return bool(words) and words[0] in NARRATIVE_VERBS
 
 
+def is_form_field(upper: str) -> bool:
+    """Isian formulir diawali nama isian ('NAMA :', 'Kata Kunci: ...'); bukan sekadar memuat kata itu
+    ('Kookurensi Kata Kunci' adalah judul sub-bab)."""
+    for field_name in RULE_PRIOR_FORM_FIELDS:
+        if upper.startswith(field_name):
+            return ":" in upper if field_name in ("KATA KUNCI", "KEYWORDS") else True
+    return False
+
+
+def is_frontmatter_title_text(upper: str) -> bool:
+    """Judul halaman awal/akhir: sama persis dengan judul baku atau diawali judul baku + spasi
+    ('HALAMAN PERSETUJUAN PUBLIKASI ...'). 'Abstract: ringkasan dari isi publikasi' adalah kalimat isi."""
+    clean = upper.strip().rstrip(".:;")
+    if ":" in clean or upper.strip().endswith("."):
+        return False
+    return any(clean == title or clean.startswith(title + " ") for title in FRONTMATTER_TITLES)
+
+
 def rule_prior_label(features: dict) -> Optional[Tuple[str, str]]:
     """(label, alasan) dari aturan baku UEU berdasarkan fitur mentah satu paragraf, atau None
     bila tidak ada aturan yang berlaku (keputusan diserahkan ke rantai audit konteks Agent 2)."""
@@ -119,9 +137,9 @@ def rule_prior_label(features: dict) -> Optional[Tuple[str, str]]:
         return LABEL_OTHER, "Paragraf kosong."
     if features["doc_pos"] < RULE_PRIOR_COVER_ZONE and any(k in upper for k in RULE_PRIOR_COVER_PHRASES):
         return LABEL_COVER, "Frasa identitas sampul di zona awal dokumen."
-    if any(k in upper for k in RULE_PRIOR_FORM_FIELDS):
+    if is_form_field(upper):
         return LABEL_BODY, "Isian formulir (Nama/NIM/Kata Kunci/dll.) adalah teks biasa."
-    if word_count <= 10 and upper.startswith(FRONTMATTER_TITLES):
+    if word_count <= 10 and is_frontmatter_title_text(upper):
         return LABEL_FRONTMATTER, "Judul halaman awal resmi UEU."
     if word_count <= 5 and (upper in CHAPTER_TITLES or upper.startswith("BAB ")):
         return LABEL_CHAPTER, "Pola judul Bab ('BAB X' atau nama bab kanonikal)."

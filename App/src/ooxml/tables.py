@@ -52,10 +52,42 @@ _MATERAI_BORDERS = (
 )
 
 
+_RPR_AFTER_SZ = {qn(f"w:{t}") for t in ("highlight", "u", "effect", "bdr", "shd", "fitText", "vertAlign", "rtl",
+                                         "cs", "em", "lang", "eastAsianLayout", "specVanish", "oMath",
+                                         "ins", "del", "moveFrom", "moveTo", "rPrChange")}
+
+
+def _set_paragraph_mark_size(p, half_points: int) -> None:
+    """Ukuran tanda paragraf (w:pPr/w:rPr): nomor/bullet list otomatis Word mengikuti ukuran ini,
+    sehingga tanpa ini nomor "1." di sel tabel tampil lebih besar daripada teks 10 pt."""
+    pPr = p._p.get_or_add_pPr()
+    rPr = pPr.find(qn("w:rPr"))
+    if rPr is None:
+        rPr = w_el("rPr")
+        pPr.append(rPr)
+    for tag in ("w:sz", "w:szCs"):
+        old = rPr.find(qn(tag))
+        if old is not None:
+            rPr.remove(old)
+    # Urutan skema w:rPr: sz/szCs harus sebelum highlight, u, ..., lang (Word membuang yang salah urut).
+    after = next((child for child in rPr if child.tag in _RPR_AFTER_SZ), None)
+    for tag in ("sz", "szCs"):
+        el = w_el(tag, {"val": str(half_points)})
+        if after is not None:
+            after.addprevious(el)
+        else:
+            rPr.append(el)
+
+
 def _format_cell_paragraphs(cell, *, bold=None, center=False, padding_pt=None) -> None:
     for p in cell.paragraphs:
         if center:
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        elif p.alignment in (None, WD_ALIGN_PARAGRAPH.JUSTIFY):
+            # Rata kiri-kanan di kolom sempit menimbulkan celah lebar antarkata; perataan tengah/kanan
+            # bawaan naskah (mis. kolom angka) dipertahankan.
+            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        _set_paragraph_mark_size(p, 20)
         if padding_pt is None:
             p.paragraph_format.line_spacing = 1.0
             p.paragraph_format.space_before = Pt(0)

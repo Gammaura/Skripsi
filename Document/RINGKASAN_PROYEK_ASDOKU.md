@@ -334,8 +334,8 @@ Sumber: `App/output/eval_report_korpus.md`.
 | Konfigurasi | Asli | Polos |
 |---|:---:|:---:|
 | Agen 1 saja | 93,79 | 92,41 |
-| Aturan Agen 2 saja | 96,79 | 94,16 |
-| Sistem multi-agen | **98,90** | **96,35** |
+| Aturan Agen 2 saja | 96,76 | 95,88 |
+| Sistem multi-agen | **98,86** | **97,99** |
 
 Catatan validitas: beberapa aturan Agen 2 diperbaiki setelah melihat naskah uji (9 Nov 2026). Perlu naskah uji baru untuk konfirmasi.
 
