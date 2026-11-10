@@ -47,6 +47,7 @@ Skripsi/
 │   │   ├── lampiran/              ← pedoman anotasi, formulir izin, kuesioner
 │   │   ├── diagram/               ← kerangka berpikir, kerangka pemikiran, tahapan penelitian (.drawio + .png)
 │   │   └── arsip/                 ← draf v1 (tidak dipakai lagi)
+│   ├── Skripsi/                   ← draf skripsi: bab1–3.md, referensi.md (sumber) → DRAF_SKRIPSI_BAB_1-3.docx
 │   ├── Review/                    ← catatan review pembimbing/penguji
 │   ├── Kapita_Selekta/            ← fase 1–7 mata kuliah Kapita Selekta (prototipe awal)
 │   ├── Pedoman/                   ← Pedoman Penulisan Skripsi UEU 2018 + template
@@ -83,6 +84,14 @@ Aturan penting:
 - Setelah mengubah label: ulangi langkah 3–7.
 - Setiap perubahan Formatter: jalankan langkah 7–8 **dan** buka hasilnya di Microsoft Word asli
   (Word diam-diam membuang XML yang tidak sesuai skema).
+
+## Membuat ulang draf skripsi
+
+```bash
+cd Document/Skripsi
+pandoc sampul.md bab1.md bab2.md bab3.md referensi.md -t docx --resource-path=. -o DRAF_SKRIPSI_BAB_1-3_mentah.docx
+# lalu rapikan dengan Asdoku (web /alat, atau python3 App/main.py) → DRAF_SKRIPSI_BAB_1-3.docx
+```
 
 ## Privasi
 
