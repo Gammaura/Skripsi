@@ -358,7 +358,7 @@ def _clear_old_list_body(title_p) -> Optional[Paragraph]:
     return None
 
 
-_PAGE_NUMBER_TAIL_RE = re.compile(r"\t\s*(\d{1,3}|[ivxlc]{1,6})\s*$", re.IGNORECASE)
+_PAGE_NUMBER_TAIL_RE = re.compile(r"(\t|[.…]{3,})\s*(\d{1,3}|[ivxlc]{1,6})\s*$", re.IGNORECASE)
 
 
 def _is_old_list_entry(p: Paragraph) -> bool:
@@ -391,15 +391,25 @@ def _missing_list_entries(collector: _TocCollector) -> List[TocEntry]:
 
 
 def generate_table_of_contents(doc, has_frontmatter: bool = True) -> None:
-    """Membangun Daftar Isi/Tabel/Gambar; TOC native Word (w:sdt) yang sudah ada dipertahankan."""
+    """Membangun Daftar Isi/Tabel/Gambar; Daftar Isi native naskah (w:sdt) diganti Daftar Isi baru."""
     print("[Agent 3 - Formatter Actuator] Menyusun otomatis Daftar Isi, Daftar Tabel, dan Daftar Gambar dengan penomoran dinamis...")
+    native = _find_native_toc(doc)
+    if native is not None:
+        # Daftar Isi bawaan naskah berisi struktur & penomoran lama (mis. 2.2.2.2, "BAB 1 ... PENDAHULUAN")
+        # sehingga diganti Daftar Isi baru dari judul hasil format; isinya memang dibangun ulang (tidak ada
+        # teks naskah yang hilang). Judul "DAFTAR ISI" dibuat di posisi blok lama bila ikut terhapus.
+        print("[Agent 3 - Formatter Actuator] Daftar Isi bawaan naskah (w:sdt) diganti Daftar Isi baru.")
+        if _find_list_title(doc, "DAFTAR ISI") is None:
+            title = w_el("p")
+            title.set("approved_label", "FRONTMATTER_TITLE")
+            native.addprevious(title)
+            style_run(Paragraph(title, doc._body).add_run("DAFTAR ISI"), 14, bold=True)
+        native.getparent().remove(native)
     collector = _TocCollector()
     for p in doc.paragraphs:
         collector.visit(p)
 
-    has_native_toc = _find_native_toc(doc) is not None
-    if has_native_toc:
-        print("[Agent 3 - Formatter Actuator] Dokumen memiliki Native Word TOC (w:sdt). Mempertahankan 100% blok TOC asli...")
+    has_native_toc = False
 
     anchor_bab_p = _find_first_chapter(doc)
     toc_entries = collector.toc_entries

@@ -79,6 +79,16 @@ _CAPTION_STYLES = {
 }
 
 
+# Kata awal judul yang selalu membuka halaman baru (bukan lanjutan judul sebelumnya)
+_PAGE_START_TITLE_WORDS = ("HALAMAN", "LEMBAR", "PERNYATAAN", "PERSETUJUAN", "PENGESAHAN", "KATA PENGANTAR",
+                           "PRAKATA", "UCAPAN", "ABSTRA", "DAFTAR", "LAMPIRAN", "RIWAYAT")
+# Isian formulir "Label<tab>: isi" di halaman awal (pengesahan, pernyataan, abstrak)
+_FORM_LINE_RE = re.compile(r"^[^\t:]{1,40}\t+\s*:")
+_TAB_GAP = 284  # jarak titik dua ke awal isi (0,5 cm)
+_LABEL_CHAR_TWIPS = 115  # perkiraan lebar rata-rata satu huruf Times New Roman 12 pt
+_TEXT_WIDTH = 7937  # lebar area teks A4 dengan margin kiri 4 cm & kanan 3 cm (14 cm)
+
+
 def _citation_elements(p_elem) -> list:
     """Elemen sitasi Mendeley di paragraf: content control MENDELEY_CITATION, fldSimple, atau field
     kompleks (run fldChar begin..end) yang instruksinya memuat CSL_CITATION."""
@@ -195,6 +205,7 @@ class FormattingActuatorAgent:
 
         self._copy_remaining_tables(state)
         self._copy_other_body_elements(state)
+        self._align_form_fields(doc_out)
         generate_table_of_contents(doc_out, has_frontmatter=has_frontmatter)
         self._apply_section_properties(doc_out, frontmatter_sect_pr, body_sect_pr)
         self._hide_cover_header(doc_out)
@@ -335,6 +346,13 @@ class FormattingActuatorAgent:
     def _render_frontmatter_title(self, state: _BuildState, item: Dict[str, Any], _p_src) -> None:
         doc_out = state.doc_out
         text = item.get("text", "").strip()
+        previous = self._last_body_block(doc_out)
+        if (previous is not None and previous.get("approved_label") == "FRONTMATTER_TITLE"
+                and text and not text.upper().startswith(_PAGE_START_TITLE_WORDS)):
+            # Judul halaman yang terpecah dua paragraf ("HALAMAN PERSETUJUAN PUBLIKASI KARYA ILMIAH" +
+            # "UNTUK KEPENTINGAN AKADEMIS") digabung: baris kedua bukan halaman baru.
+            style_run(Paragraph(previous, doc_out._body).add_run(" " + text.upper()), 14, bold=True)
+            return
         p, pPr = self._new_paragraph(doc_out, "FRONTMATTER_TITLE", "Heading 1")
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         pPr.append(_jc("center"))
@@ -432,6 +450,184 @@ class FormattingActuatorAgent:
             clone_paragraph(p_src._p, state.doc_src, state.doc_out, "BODY_PARAGRAPH")
 
     @staticmethod
+    def _align_form_fields(doc_out) -> None:
+        """Isian 'Label<tab>: isi' di halaman awal: dalam satu halaman (di antara dua judul halaman), titik
+        dua dan awal isi disejajarkan pada satu posisi yang cukup jauh untuk label terpanjang, baris lanjutan
+        isi rata dengan awal isi (hanging indent), dan kolom tanda tangan "( )" rata kanan. Naskah sumber
+        sering memakai tab stop berbeda per baris sehingga titik dua tidak lurus."""
+        body = doc_out.element.body
+        groups, current = [], []
+        for p in body.iterchildren(qn("w:p")):
+            label = p.get("approved_label")
+            if label in ("JUDUL_BAB", "FRONTMATTER_TITLE"):
+                if current:
+                    groups.append(current)
+                current = []
+                if label == "JUDUL_BAB":
+                    break
+                continue
+            text = FormattingActuatorAgent._text_with_tabs(p)
+            if _FORM_LINE_RE.match(text):
+                current.append(p)
+            elif (current and current[-1] is p.getprevious() and text.strip()
+                  and (text.startswith("\t") or FormattingActuatorAgent._left_indent(p) >= 1000)):
+                p.set("form_continuation", "true")  # baris lanjutan isi isian sebelumnya (tanpa label)
+                current.append(p)
+        if current:
+            groups.append(current)
+        for group in groups:
+            lefts, colon_tabs, label_widths = [], [], []
+            for p in group:
+                pPr = p.get_or_add_pPr()
+                ind = pPr.find(qn("w:ind"))
+                left = int(ind.get(qn("w:left"), 0) or 0) if ind is not None else 0
+                hanging = int(ind.get(qn("w:hanging"), 0) or 0) if ind is not None else 0
+                start = left - hanging
+                lefts.append(start)
+                label_widths.append(start + _LABEL_CHAR_TWIPS * len(FormattingActuatorAgent._text_with_tabs(p).split("\t")[0]))
+                stops = sorted(int(t.get(qn("w:pos"))) for t in pPr.iter(qn("w:tab"))
+                               if t.get(qn("w:val")) not in ("clear", "right", "center") and int(t.get(qn("w:pos"))) > start)
+                if stops:
+                    colon_tabs.append(stops[0])
+            rows = [p for p in group if p.get("form_continuation") != "true"]
+            base = min(lefts[k] for k, p in enumerate(group) if p.get("form_continuation") != "true")
+            colon_pos = max(colon_tabs + [max(w for k, w in enumerate(label_widths) if group[k] in rows) + _TAB_GAP // 2])
+            value_pos = colon_pos + _TAB_GAP
+            for p in group:
+                pPr = p.get_or_add_pPr()
+                replace_child(pPr, _jc("left"))  # rata kiri-kanan menimbulkan celah lebar di kolom isi
+                if p.get("form_continuation") == "true":
+                    # lanjutan: buang tab pembuka, mulai tepat di posisi isi
+                    FormattingActuatorAgent._strip_leading_tabs(p)
+                    remove_child(pPr, "w:tabs")
+                    replace_child(pPr, _ind(left=value_pos))
+                    del p.attrib["form_continuation"]
+                    continue
+                replace_child(pPr, w_el("tabs", inner=f'<w:tab w:val="left" w:pos="{colon_pos}"/>'
+                                                      f'<w:tab w:val="left" w:pos="{value_pos}"/>'
+                                                      f'<w:tab w:val="right" w:pos="{_TEXT_WIDTH}"/>'))
+                replace_child(pPr, _ind(left=value_pos, hanging=value_pos - base))
+                FormattingActuatorAgent._tab_after_colon(p)
+
+    @staticmethod
+    def _left_indent(p) -> int:
+        ind = p.find(f"{qn('w:pPr')}/{qn('w:ind')}")
+        return int(ind.get(qn("w:left"), 0) or 0) if ind is not None else 0
+
+    @staticmethod
+    def _strip_leading_tabs(p) -> None:
+        for r in list(p.iterchildren(qn("w:r"))):
+            for c in list(r):
+                if c.tag == qn("w:rPr"):
+                    continue
+                if c.tag == qn("w:tab"):
+                    r.remove(c)
+                    continue
+                if c.tag == qn("w:t"):
+                    c.text = (c.text or "").lstrip(" ")
+                    if c.text:
+                        return
+                    r.remove(c)
+                    continue
+                return
+
+    @staticmethod
+    def _text_with_tabs(p) -> str:
+        parts = []
+        for el in p.iter(qn("w:t"), qn("w:tab")):
+            if el.tag == qn("w:tab") and el.getparent().tag == qn("w:r"):
+                parts.append("\t")
+            elif el.tag == qn("w:t"):
+                parts.append(el.text or "")
+        return "".join(parts)
+
+    @staticmethod
+    def _tab_after_colon(p) -> None:
+        """Tepat satu tab sesudah titik dua pertama (spasi/tab di antaranya dibuang), dan tab ganda di dalam
+        isi (dulu dipakai memaksa pindah baris) menjadi spasi. Tab tunggal sesudahnya, misalnya kolom
+        tanda tangan, dipertahankan. Run dipecah tepat di titik dua agar urutan isi tidak berubah."""
+        XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
+
+        def new_run(template, child=None):
+            run = copy.deepcopy(template)
+            for c in list(run):
+                if c.tag != qn("w:rPr"):
+                    run.remove(c)
+            if child is not None:
+                run.append(child)
+            return run
+
+        def text_el(value):
+            t_el = w_el("t", inner="")
+            t_el.text = value
+            t_el.set(XML_SPACE, "preserve")
+            return t_el
+
+        target = next(((r, t) for r in p.iterchildren(qn("w:r")) for t in r.iterchildren(qn("w:t"))
+                       if ":" in (t.text or "")), None)
+        if target is None:
+            return
+        run, t = target
+        tail = new_run(run)  # isi sesudah titik dua dalam run yang sama dipindah ke run ekor
+        for sib in list(t.itersiblings()):
+            tail.append(sib)
+        before, after = (t.text or "").split(":", 1)
+        rest = after.lstrip(" \t")
+        t.text = before + ":"
+        t.set(XML_SPACE, "preserve")
+        tab_run = new_run(run, w_el("tab"))
+        run.addnext(tab_run)
+        anchor = tab_run
+        if rest:
+            rest_run = new_run(run, text_el(rest))
+            anchor.addnext(rest_run)
+            anchor = rest_run
+        if len(tail) > (1 if tail.find(qn("w:rPr")) is not None else 0):
+            anchor.addnext(tail)
+        if not rest:
+            # buang tab/spasi pembuka sebelum isi pertama
+            for r in list(tab_run.itersiblings(qn("w:r"))):
+                for c in list(r):
+                    if c.tag == qn("w:rPr"):
+                        continue
+                    if c.tag == qn("w:tab"):
+                        r.remove(c)
+                        continue
+                    if c.tag == qn("w:t"):
+                        c.text = (c.text or "").lstrip(" ")
+                        if c.text:
+                            break
+                        r.remove(c)
+                        continue
+                    break
+                else:
+                    continue
+                break
+        # tab ganda di dalam isi -> satu spasi; tab tunggal (kolom) tetap
+        elements = [c for r in tab_run.itersiblings(qn("w:r")) for c in r if c.tag in (qn("w:tab"), qn("w:t"))]
+        i = 0
+        while i < len(elements):
+            if elements[i].tag == qn("w:tab"):
+                j = i
+                while j < len(elements) and elements[j].tag == qn("w:tab"):
+                    j += 1
+                following = (elements[j].text or "").lstrip() if j < len(elements) else ""
+                if following.startswith("("):
+                    # kolom tanda tangan "( )": satu tab menuju tab kanan, berapa pun jumlah tab sumbernya
+                    for tab in elements[i + 1:j]:
+                        tab.getparent().remove(tab)
+                    i = j
+                    continue
+                # tab ganda yang diikuti lanjutan kalimat (huruf) dulu dipakai memaksa pindah baris
+                if j - i >= 2 and following[:1].isalpha():
+                    elements[i].addprevious(text_el(" "))
+                    for tab in elements[i:j]:
+                        tab.getparent().remove(tab)
+                i = j
+            else:
+                i += 1
+
+    @staticmethod
     def _last_body_block(doc_out):
         return next((el for el in reversed(doc_out.element.body) if el.tag != qn("w:sectPr")), None)
 
@@ -511,6 +707,11 @@ class FormattingActuatorAgent:
 
     def _render_frontmatter_body(self, state: _BuildState, text: str, p_src, rich: bool) -> None:
         is_keywords = text.lower().startswith(KEYWORD_PREFIXES) and ":" in text
+        src_pPr = p_src._p.find(qn("w:pPr")) if p_src is not None else None
+        if text and not rich and src_pPr is not None and src_pPr.find(qn("w:numPr")) is not None:
+            # Butir bernomor otomatis (mis. ucapan terima kasih di kata pengantar) tetap list bernomor.
+            self._render_chapter_body_text(state, text, p_src)
+            return
         if rich:
             clone_paragraph(p_src._p, state.doc_src, state.doc_out, "BODY_PARAGRAPH")
         elif text and p_src is not None and not is_keywords:

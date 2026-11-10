@@ -998,3 +998,12 @@ Naskah proposal tugas akhir peneliti (draf Markdown → pandoc → `.docx`) dija
 * Uji di Vercel (naskah L03, 1.300 paragraf, 12 detik) menemukan 4 aturan Agen 2 yang membatalkan tebakan benar model: "Abstract: ..." dianggap judul halaman Abstract; "Kookurensi Kata Kunci" dianggap isian formulir; judul tebal bernomor otomatis diturunkan jadi paragraf; entri daftar pustaka dilabel BODY (format tetap benar). Ditambah baris daftar isi dengan titik penuntun menempel ke nomor halaman. Koreksi Agen 2 pada L03: 29 → 2. Ablasi (naskah uji): MAS 98,86 (asli) / 97,99 (polos); akurasi MAS polos 99,25 > Agen 1 98,61.
 * Versi pustaka dikunci di `requirements*.txt` (scikit-learn 1.7.0 sesuai model). Branch digabung ke `main` dan di-push untuk deploy Vercel.
 * Tabel: isi sel rata kiri (perataan tengah/kanan bawaan dipertahankan) dan tanda paragraf sel 10 pt agar nomor list otomatis di sel sama besar dengan teks. Garis titik-titik vertikal yang terlihat di Word adalah *gridlines* tampilan (tidak tercetak), bukan garis tabel.
+
+#### 7. Perapian halaman awal & Daftar Isi (10 November 2026):
+Masukan peneliti dari hasil Vercel naskah L03:
+* Judul halaman yang terpecah dua paragraf ("HALAMAN PERSETUJUAN PUBLIKASI KARYA ILMIAH" + "UNTUK KEPENTINGAN AKADEMIS") digabung; sebelumnya baris kedua membuka halaman baru sehingga halaman persetujuan kosong (juga terjadi pada P1).
+* Butir bernomor otomatis di halaman awal (ucapan terima kasih kata pengantar) tetap list bernomor.
+* Isian "Label : isi" di halaman awal: titik dua dan isi sejajar per halaman (posisi cukup untuk label terpanjang), baris lanjutan rata dengan isi, isi rata kiri, kolom tanda tangan "( )" rata kanan, tab ganda pemaksa pindah baris menjadi spasi.
+* Daftar Isi bawaan naskah (content control) diganti Daftar Isi buatan Asdoku: sebelumnya isinya struktur lama (2.2.2.2, "BAB 1 …… PENDAHULUAN").
+* Baris Daftar Tabel/Gambar lama dengan titik penuntun menempel ke nomor halaman ikut dibersihkan.
+* Alat uji keutuhan menghitung ganti baris/tab sebagai spasi (judul "BAB 1⏎PENDAHULUAN").

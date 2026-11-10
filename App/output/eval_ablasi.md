@@ -1,6 +1,6 @@
 # Uji Ablasi Deteksi Struktur
 
-**Tanggal:** 09-11-2026  
+**Tanggal:** 10-11-2026  
 **Data:** naskah uji (tidak dipakai melatih model)  
 **Pembanding:** label manual per paragraf (9 kelas)
 

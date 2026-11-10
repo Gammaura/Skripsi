@@ -66,7 +66,8 @@ def _paragraph_texts(path: str, skip_toc: bool = False) -> list:
     doc = Document(path)
     texts = []
     for p in doc.element.body.iter(qn("w:p")):
-        text = "".join(t.text or "" for t in p.iter(qn("w:t")))
+        text = "".join((t.text or "") if t.tag == qn("w:t") else " "
+                       for t in p.iter(qn("w:t"), qn("w:br"), qn("w:tab")))
         if skip_toc and _is_toc_line(p, text):
             continue
         texts.append(text)

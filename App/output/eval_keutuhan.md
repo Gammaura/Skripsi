@@ -1,6 +1,6 @@
 # Uji Keutuhan Isi
 
-**Tanggal:** 09-11-2026
+**Tanggal:** 10-11-2026
 
 Format sel: jumlah sebelum → sesudah diformat. Cakupan teks = % paragraf sumber yang teksnya ada di hasil.
 
